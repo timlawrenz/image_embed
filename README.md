@@ -7,7 +7,7 @@ A simple FastAPI service that generates embeddings for images using OpenAI's CLI
 *   Accepts an image URL as input.
 *   Downloads the image.
 *   Converts the image to RGB format if necessary (e.g., handling alpha channels).
-*   **Detects humans in the image:**
+*   **Detects humans in the image (using Faster R-CNN with a ResNet50 FPN backbone from `torchvision.models.detection`):**
     *   If one or more humans are detected, the image is cropped to the bounding box of the human with the highest detection confidence. The embedding is then generated for this cropped region.
     *   If no human is detected, the embedding is generated for the entire image.
 *   Preprocesses the (potentially cropped) image for CLIP.
