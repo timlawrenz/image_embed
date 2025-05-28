@@ -4,6 +4,8 @@ import logging
 import clip
 import requests
 import torch
+import torchvision # Added for detection model
+import torchvision.transforms as T # Added for detection model
 from fastapi import FastAPI, HTTPException
 from PIL import Image
 from pydantic import BaseModel, HttpUrl
@@ -35,6 +37,17 @@ except Exception as e:
     # If the model can't load, the app shouldn't start or should indicate a critical error.
     # For simplicity here, we'll let it raise, but in production, you might handle this more gracefully.
     raise RuntimeError(f"Could not load CLIP model: {e}") from e
+
+# Load human detection model (e.g., Faster R-CNN)
+try:
+    detection_model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=torchvision.models.detection.FasterRCNN_ResNet50_FPN_Weights.DEFAULT)
+    detection_model.to(device)
+    detection_model.eval() # Set to evaluation mode
+    logger.info("Human detection model (Faster R-CNN) loaded successfully.")
+except Exception as e:
+    logger.exception("Failed to load human detection model.")
+    raise RuntimeError(f"Could not load human detection model: {e}") from e
+
 
 # --- Pydantic Models for Request and Response ---
 
@@ -70,22 +83,83 @@ async def generate_embedding_from_url(request_data: ImageUrlRequest):
         raise HTTPException(status_code=400, detail=f"Could not download image from URL: {e}")
 
     try:
-        # 2. Load and preprocess the image
+        # 2. Load the image
         pil_image = Image.open(io.BytesIO(image_bytes))
-        # If the image has an alpha channel (e.g., PNG with transparency), convert it to RGB
-        if pil_image.mode == 'RGBA' or pil_image.mode == 'LA' or (pil_image.mode == 'P' and 'transparency' in pil_image.info):
-            pil_image = pil_image.convert('RGB')
-            logger.info("Converted image with alpha channel to RGB.")
 
-        image_input = preprocess(pil_image).unsqueeze(0).to(device)
-        logger.info("Image preprocessed successfully.")
+        # Ensure image is RGB for consistency for detection and CLIP
+        pil_image_rgb = pil_image
+        if pil_image.mode != 'RGB':
+            # Handle common cases like RGBA, LA (Luminance Alpha), P (Palette with transparency)
+            if pil_image.mode == 'RGBA' or pil_image.mode == 'LA' or \
+               (pil_image.mode == 'P' and 'transparency' in pil_image.info):
+                pil_image_rgb = pil_image.convert('RGB')
+                logger.info(f"Converted image from mode {pil_image.mode} (with alpha/palette) to RGB.")
+            else:
+                # General conversion for other modes like L, P (without transparency hint), CMYK etc.
+                pil_image_rgb = pil_image.convert('RGB')
+                logger.info(f"Converted image from mode {pil_image.mode} to RGB.")
+        
+        # --- Human Detection ---
+        # Transform for detection model
+        transform_detection = T.Compose([T.ToTensor()])
+        img_tensor_detection = transform_detection(pil_image_rgb).to(device)
 
+        with torch.no_grad(): # Disable gradients for detection
+            predictions = detection_model([img_tensor_detection])
+
+        # Extract bounding box for the human with the highest score
+        # COCO class ID for 'person' is 1
+        scores = predictions[0]['scores']
+        labels = predictions[0]['labels']
+        boxes = predictions[0]['boxes']
+
+        person_indices = (labels == 1).nonzero(as_tuple=True)[0]
+        
+        image_for_clip_processing = pil_image_rgb # Default to the full RGB image
+
+        if len(person_indices) > 0:
+            # Human(s) detected, proceed to crop
+            # Get the index of the person with the highest score among detected persons
+            person_scores = scores[person_indices]
+            highest_score_person_local_idx = person_scores.argmax()
+            highest_score_person_global_idx = person_indices[highest_score_person_local_idx]
+            
+            bbox = boxes[highest_score_person_global_idx].cpu().numpy().astype(int)
+            xmin, ymin, xmax, ymax = bbox
+            
+            detection_confidence = scores[highest_score_person_global_idx].item()
+            logger.info(f"Human detected with bounding box: [{xmin}, {ymin}, {xmax}, {ymax}] and confidence: {detection_confidence:.2f}")
+
+            # Crop the original RGB PIL image using the bounding box
+            # Ensure box coordinates are valid (e.g. xmin < xmax)
+            if xmin >= xmax or ymin >= ymax:
+                logger.error(f"Invalid bounding box from detection: [{xmin}, {ymin}, {xmax}, {ymax}] for image {image_url_str}")
+                raise HTTPException(status_code=500, detail="Invalid bounding box detected.")
+                
+            cropped_pil_image = pil_image_rgb.crop((xmin, ymin, xmax, ymax))
+            if cropped_pil_image.width == 0 or cropped_pil_image.height == 0:
+                logger.error(f"Cropped image has zero dimension: w={cropped_pil_image.width}, h={cropped_pil_image.height} from bbox [{xmin},{ymin},{xmax},{ymax}] on image {image_url_str}")
+                raise HTTPException(status_code=400, detail="Cropped human region resulted in an empty image.")
+            
+            image_for_clip_processing = cropped_pil_image
+            logger.info("Image cropped to human bounding box for CLIP processing.")
+        else:
+            # No human detected, use the full image
+            logger.warning(f"No human detected in image from {image_url_str}. Using full image for CLIP processing.")
+        # --- End Human Detection Logic ---
+
+        # Preprocess the selected image (either cropped or full) for CLIP
+        image_input = preprocess(image_for_clip_processing).unsqueeze(0).to(device)
+        logger.info("Image (full or cropped) preprocessed successfully for CLIP.")
+
+    except HTTPException: # Re-raise HTTPExceptions directly
+        raise
     except Exception as e:
-        logger.error(f"Failed to process image from {image_url_str}: {e}")
-        raise HTTPException(status_code=400, detail=f"Could not process image: {e}")
+        logger.error(f"Failed to process image or detect human in {image_url_str}: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=f"Could not process image or detect human: {e}")
 
     try:
-        # 3. Generate the embedding
+        # 3. Generate the embedding for the (potentially cropped) image
         with torch.no_grad(): # Disables gradient calculations, important for inference
             image_embedding_tensor = model.encode_image(image_input)
         logger.info("Image embedding generated successfully.")
