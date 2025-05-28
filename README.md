@@ -6,11 +6,14 @@ A simple FastAPI service that generates embeddings for images using OpenAI's CLI
 
 *   Accepts an image URL as input.
 *   Downloads the image.
-*   Preprocesses the image for CLIP.
+*   Converts the image to RGB format if necessary (e.g., handling alpha channels).
+*   **Detects humans in the image:**
+    *   If one or more humans are detected, the image is cropped to the bounding box of the human with the highest detection confidence. The embedding is then generated for this cropped region.
+    *   If no human is detected, the embedding is generated for the entire image.
+*   Preprocesses the (potentially cropped) image for CLIP.
 *   Generates an image embedding using a specified CLIP model (default: "ViT-B/32").
 *   Returns the image URL, the generated embedding, and the model name used.
-*   Handles images with alpha channels (e.g., PNGs with transparency) by converting them to RGB.
-*   Basic error handling for image download and processing.
+*   Basic error handling for image download, processing, and human detection.
 
 ## API Endpoint
 
@@ -52,13 +55,23 @@ Generates an image embedding from a given image URL.
     ```
     ```json
     {
-      "detail": "Could not process image: <error_details>"
+      "detail": "Could not process image or detect human: <error_details>"
     }
     ```
-*   **500 Internal Server Error:** If there's an issue generating the embedding on the server side.
+    ```json
+    {
+      "detail": "Cropped human region resulted in an empty image."
+    }
+    ```
+*   **500 Internal Server Error:** If there's an issue generating the embedding on the server side or an internal error during processing (e.g., invalid bounding box from detection).
     ```json
     {
       "detail": "Failed to generate embedding: <error_details>"
+    }
+    ```
+    ```json
+    {
+      "detail": "Invalid bounding box detected."
     }
     ```
 
