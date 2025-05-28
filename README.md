@@ -91,7 +91,7 @@ Generates an image embedding from a given image URL.
 
 3.  **Install dependencies:**
     ```bash
-    pip install fastapi uvicorn python-multipart torch torchvision torchaudio openai-clip requests Pillow
+    pip install -r requirements.txt
     ```
 
 ## Running the Service

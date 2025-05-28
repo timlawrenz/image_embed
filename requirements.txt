@@ -1,1 +1,9 @@
+fastapi
+uvicorn
+python-multipart
+torch
 torchvision
+torchaudio
+openai-clip
+requests
+Pillow
