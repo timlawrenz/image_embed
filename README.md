@@ -215,11 +215,13 @@ Fits a 3D Morphable Model (currently a mock implementation).
 
 **Note on Placeholders:** Face detection and 3DMM fitting are currently mock implementations. They will return predefined results or indicate that the respective models are not loaded.
 
-## CLIP Model
+## CLIP Model and Device Management
 
-The service currently uses the `"ViT-B/32"` CLIP model by default. You can change the `MODEL_NAME` variable in `main.py` to use other available CLIP models (e.g., `"ViT-L/14"`, `"RN50x16"`). Keep in mind that larger models might offer better accuracy but will require more computational resources (CPU/GPU and memory) and may be slower.
+The service currently uses the `"ViT-B/32"` CLIP model by default for the `embed_clip_vit_b_32` operation. This default is specified by the `MODEL_NAME_CLIP` variable in `main.py`. You can change this variable to use a different default CLIP model (e.g., `"ViT-L/14"`, `"RN50x16"`).
 
-The code attempts to use a CUDA-enabled GPU if available (`device = "cuda"`); otherwise, it falls back to the CPU (`device = "cpu"`).
+Models (including CLIP and detection models) are loaded on-demand and cached by the `app.core.model_loader` module. This module also handles the device selection, attempting to use a CUDA-enabled GPU if available; otherwise, it falls back to the CPU.
+
+Keep in mind that larger models might offer better accuracy but will require more computational resources (CPU/GPU and memory) and may be slower to load initially.
 
 ## Logging
 
