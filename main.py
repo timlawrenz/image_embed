@@ -1,5 +1,6 @@
 import io
 import logging
+from typing import Any, Dict, List, Optional, Tuple # Added Tuple
 
 import clip
 import requests
@@ -8,7 +9,8 @@ import torchvision # Added for detection model
 import torchvision.transforms as T # Added for detection model
 from fastapi import FastAPI, HTTPException
 from PIL import Image
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, Field # Added Field
+import base64 # Added
 
 # --- Configuration & Initialization ---
 
@@ -18,46 +20,59 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Image Embedding API",
-    description="Generates image embeddings from a URL using OpenAI CLIP.",
-    version="0.1.0",
+    title="Advanced Image Analysis API",
+    description="Performs various analyses on an image from a URL, including embeddings, object detection, and more.",
+    version="0.2.1",
 )
 
-# Load CLIP model
-# You can choose other CLIP models like "ViT-L/14", "RN50x16", etc.
-# Larger models might provide better accuracy but will be slower and use more memory.
-MODEL_NAME = "ViT-B/32"
+# --- Model Loading ---
+device = "cuda" if torch.cuda.is_available() else "cpu"
+logger.info(f"Using device: {device}")
+
+# CLIP Model
+MODEL_NAME_CLIP = "ViT-B/32"
 try:
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info(f"Using device: {device}")
-    model, preprocess = clip.load(MODEL_NAME, device=device, jit=False)
-    logger.info(f"CLIP model '{MODEL_NAME}' loaded successfully on {device}.")
+    clip_model, clip_preprocess = clip.load(MODEL_NAME_CLIP, device=device, jit=False)
+    logger.info(f"CLIP model '{MODEL_NAME_CLIP}' loaded successfully on {device}.")
 except Exception as e:
-    logger.exception("Failed to load CLIP model. Ensure it's installed and accessible.")
-    # If the model can't load, the app shouldn't start or should indicate a critical error.
-    # For simplicity here, we'll let it raise, but in production, you might handle this more gracefully.
+    logger.exception("Failed to load CLIP model.")
     raise RuntimeError(f"Could not load CLIP model: {e}") from e
 
-# Load human detection model (e.g., Faster R-CNN)
+# Person Detection Model (Faster R-CNN)
 try:
-    detection_model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=torchvision.models.detection.FasterRCNN_ResNet50_FPN_Weights.DEFAULT)
-    detection_model.to(device)
-    detection_model.eval() # Set to evaluation mode
-    logger.info("Human detection model (Faster R-CNN) loaded successfully.")
+    person_detection_model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=torchvision.models.detection.FasterRCNN_ResNet50_FPN_Weights.DEFAULT)
+    person_detection_model.to(device)
+    person_detection_model.eval()
+    logger.info("Person detection model (Faster R-CNN) loaded successfully.")
 except Exception as e:
-    logger.exception("Failed to load human detection model.")
-    raise RuntimeError(f"Could not load human detection model: {e}") from e
+    logger.exception("Failed to load person detection model.")
+    raise RuntimeError(f"Could not load person detection model: {e}") from e
 
+face_detection_model = None # Placeholder
+threedmm_model = None # Placeholder
 
-# --- Pydantic Models for Request and Response ---
+# --- Pydantic Models ---
 
-class ImageUrlRequest(BaseModel):
-    image_url: HttpUrl # pydantic will validate if this is a valid HTTP/HTTPS URL
+class AnalysisTask(BaseModel):
+    operation_id: str = Field(..., description="A unique ID for this specific requested operation, will be used as a key in the results.")
+    type: str = Field(..., description="Type of operation to perform.", examples=["embed_clip_vit_b_32", "detect_bounding_box"])
+    # Make params optional for default behaviors
+    params: Optional[Dict[str, Any]] = Field(None, description="Parameters for the operation, e.g., {'target': 'whole_image' | 'prominent_person' | 'prominent_face'}")
 
-class EmbeddingResponse(BaseModel):
+class ImageAnalysisRequest(BaseModel):
+    image_url: HttpUrl
+    tasks: List[AnalysisTask]
+
+class OperationResult(BaseModel):
+    status: str = "success" # "success" or "error" or "skipped"
+    data: Optional[Any] = None
+    cropped_image_bbox: Optional[List[int]] = Field(None, description="Bounding box used to generate the cropped_image_base64, if applicable.")
+    cropped_image_base64: Optional[str] = Field(None, description="Base64 encoded string of the PNG cropped image processed by this operation, if applicable.")
+    error_message: Optional[str] = None
+
+class ImageAnalysisResponse(BaseModel):
     image_url: str
-    embedding: list[float]
-    model_name: str
+    results: Dict[str, OperationResult]
 
 # --- API Endpoint ---
 
