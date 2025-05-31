@@ -87,7 +87,13 @@ async def analyze_image(request: ImageAnalysisRequest):
         face_context = op_params.get("face_context", "prominent_person")
 
 
-        logger.info(f"Processing task: id='{op_id}', type='{op_type}', params='{op_params}' (derived target='{target}', face_context='{face_context}')")
+        log_details = f"derived target='{target}'"
+        # face_context is relevant if the target is a prominent_face,
+        # or if the operation is fit_3dmm (which defaults to prominent_face).
+        if target == "prominent_face" or op_type == "fit_3dmm":
+            log_details += f", face_context='{face_context}'"
+        
+        logger.info(f"Processing task: id='{op_id}', type='{op_type}', params='{op_params}' ({log_details})")
 
         try:
             current_result_data: Optional[Any] = None
