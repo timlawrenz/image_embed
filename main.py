@@ -12,8 +12,15 @@ from PIL import Image
 # Pydantic models moved to app.pydantic_models
 import base64 # Added
 from app.pydantic_models import AnalysisTask, ImageAnalysisRequest, OperationResult, ImageAnalysisResponse
+# Services will be imported below, model_loader is used by services
+# from app.core import model_loader # No longer directly used in main.py, but by services
 
-from app.core import model_loader # Added
+# Import service functions
+from app.services.image_utils import download_image
+from app.services.detection_service import get_prominent_person_bbox, get_prominent_face_bbox_in_region
+from app.services.embedding_service import get_clip_embedding
+from app.services.threedmm_service import fit_3dmm_on_face
+
 
 # --- Configuration & Initialization ---
 
@@ -38,174 +45,11 @@ MODEL_NAME_CLIP = "ViT-B/32"
 # Placeholders for models that are not yet fully implemented in the loader
 # but whose getter functions exist in model_loader.
 # face_detection_model = model_loader.get_face_detection_model()
-# threedmm_model = model_loader.get_threedmm_model()
+# threedmm_model = model_loader.get_threedmm_model() # This line is commented out
 
 # --- Pydantic Models have been moved to app/pydantic_models.py ---
 
-# --- Helper Functions for Image Processing ---
-
-def download_image(image_url_str: str) -> Image.Image:
-    logger.info(f"Downloading image from {image_url_str}")
-    try:
-        headers = {'User-Agent': 'ImageAnalysisAPI/0.2.1'}
-        response = requests.get(image_url_str, stream=True, timeout=10, headers=headers)
-        response.raise_for_status()
-        image_bytes = response.content
-        pil_image = Image.open(io.BytesIO(image_bytes))
-        if pil_image.mode != 'RGB':
-            logger.info(f"Converting image from mode {pil_image.mode} to RGB.")
-            pil_image = pil_image.convert('RGB')
-        logger.info(f"Successfully downloaded and opened image from {image_url_str}")
-        return pil_image
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to download image from {image_url_str}: {e}")
-        raise HTTPException(status_code=400, detail=f"Could not download image from URL: {e}")
-    except Exception as e:
-        logger.error(f"Failed to process image after download from {image_url_str}: {e}")
-        raise HTTPException(status_code=400, detail=f"Could not process image: {e}")
-
-
-def get_prominent_person_bbox(pil_image_rgb: Image.Image) -> Optional[List[int]]:
-    logger.info("Attempting to detect prominent person.")
-    person_detection_model_instance = model_loader.get_person_detection_model()
-    current_device = model_loader.get_device()
-
-    transform_detection = T.Compose([T.ToTensor()])
-    img_tensor_detection = transform_detection(pil_image_rgb).to(current_device)
-    with torch.no_grad():
-        predictions = person_detection_model_instance([img_tensor_detection])
-    scores = predictions[0]['scores']
-    labels = predictions[0]['labels']
-    boxes = predictions[0]['boxes']
-    person_indices = (labels == 1).nonzero(as_tuple=True)[0]
-    if len(person_indices) > 0:
-        person_scores = scores[person_indices]
-        highest_score_person_local_idx = person_scores.argmax()
-        highest_score_person_global_idx = person_indices[highest_score_person_local_idx]
-        bbox = boxes[highest_score_person_global_idx].cpu().numpy().astype(int)
-        xmin, ymin, xmax, ymax = bbox
-        if xmin >= xmax or ymin >= ymax or pil_image_rgb.width == 0 or pil_image_rgb.height == 0:
-            logger.error(f"Invalid bounding box [{xmin},{ymin},{xmax},{ymax}] or image dimensions for person detection.")
-            return None
-        if xmin < 0: xmin = 0
-        if ymin < 0: ymin = 0
-        if xmax > pil_image_rgb.width: xmax = pil_image_rgb.width
-        if ymax > pil_image_rgb.height: ymax = pil_image_rgb.height
-        if xmin >= xmax or ymin >= ymax:
-             logger.error(f"Clamped bounding box [{xmin},{ymin},{xmax},{ymax}] is still invalid.")
-             return None
-        confidence = scores[highest_score_person_global_idx].item()
-        logger.info(f"Prominent person detected with bbox: [{xmin}, {ymin}, {xmax}, {ymax}], confidence: {confidence:.2f}")
-        return [xmin, ymin, xmax, ymax]
-    else:
-        logger.info("No person detected.")
-        return None
-
-def get_prominent_face_bbox_in_region(pil_image_rgb: Image.Image, person_bbox: Optional[List[int]]) -> Optional[List[int]]:
-    # (Implementation from previous version, including placeholder logic)
-    face_detection_model_instance = model_loader.get_face_detection_model()
-    if not face_detection_model_instance:
-        logger.warning("Face detection model not available (via loader). Skipping face detection.")
-        return None
-    target_image_for_face_detection = pil_image_rgb
-    offset_x, offset_y = 0, 0
-    if person_bbox:
-        logger.info(f"Performing face detection within person bbox: {person_bbox}")
-        xmin_p, ymin_p, xmax_p, ymax_p = person_bbox
-        if xmin_p >= xmax_p or ymin_p >= ymax_p:
-            logger.error(f"Invalid person_bbox for cropping: {person_bbox}")
-            return None
-        target_image_for_face_detection = pil_image_rgb.crop(person_bbox)
-        offset_x, offset_y = xmin_p, ymin_p
-        if target_image_for_face_detection.width == 0 or target_image_for_face_detection.height == 0:
-            logger.error(f"Cropped person region for face detection is empty using bbox: {person_bbox}")
-            return None
-    else:
-        logger.info("Performing face detection on whole image (no person_bbox provided).")
-    # Mock detection for demonstration
-    if person_bbox: # This mock logic implies face detection is only attempted if a person_bbox is available
-        pw = target_image_for_face_detection.width
-        ph = target_image_for_face_detection.height
-        if pw > 10 and ph > 10 :
-            face_bbox_relative = [int(pw*0.1), int(ph*0.1), int(pw*0.4), int(ph*0.4)] # Example relative coordinates
-            logger.info(f"Mock face detected in region with relative bbox: {face_bbox_relative}")
-        else:
-            logger.info(f"Person region too small for mock face detection: w={pw}, h={ph}")
-            return None
-    else: # No person_bbox means we are checking the whole image
-        # For this mock, let's assume no face is found on the whole image if no person was specified
-        logger.info("Mock face detection: No person_bbox, so no face detected on whole image for this mock.")
-        return None # Or, you could define a mock whole-image face detection here
-
-    xmin_f, ymin_f, xmax_f, ymax_f = face_bbox_relative
-    final_face_bbox = [xmin_f + offset_x, ymin_f + offset_y, xmax_f + offset_x, ymax_f + offset_y]
-    logger.info(f"Prominent face detected with final bbox: {final_face_bbox}")
-    return final_face_bbox
-
-
-def get_clip_embedding(pil_image_rgb: Image.Image, crop_bbox: Optional[List[int]] = None) -> Tuple[List[float], Optional[str], Optional[List[int]]]:
-    # For now, get_clip_embedding uses the globally defined MODEL_NAME_CLIP.
-    # This will be parameterized in Stage 2.
-    clip_model_instance, clip_preprocess_instance = model_loader.get_clip_model_and_preprocess(MODEL_NAME_CLIP)
-    current_device = model_loader.get_device()
-
-    image_to_embed = pil_image_rgb
-    base64_cropped_image = None
-    actual_crop_bbox = None
-
-    if crop_bbox:
-        logger.info(f"Cropping image for CLIP embedding with bbox: {crop_bbox}")
-        xmin, ymin, xmax, ymax = crop_bbox
-        if xmin >= xmax or ymin >= ymax:
-            logger.error(f"Invalid crop_bbox for embedding: {crop_bbox}")
-            raise ValueError("Invalid bounding box for cropping.")
-        image_to_embed = pil_image_rgb.crop(crop_bbox)
-        if image_to_embed.width == 0 or image_to_embed.height == 0:
-            logger.error(f"Cropped image for embedding is empty using bbox: {crop_bbox}")
-            raise ValueError("Cropped image for embedding is empty.")
-        
-        actual_crop_bbox = crop_bbox # Store the bbox used
-        buffered = io.BytesIO()
-        image_to_embed.save(buffered, format="PNG")
-        base64_cropped_image = base64.b64encode(buffered.getvalue()).decode("utf-8")
-        logger.info(f"Cropped image for embedding (size: {image_to_embed.size}) encoded to base64.")
-
-    logger.info(f"Generating CLIP embedding for image (size: {image_to_embed.size}) using {MODEL_NAME_CLIP}.")
-    image_input = clip_preprocess_instance(image_to_embed).unsqueeze(0).to(current_device)
-    with torch.no_grad():
-        embedding_tensor = clip_model_instance.encode_image(image_input)
-    embedding_list = embedding_tensor[0].cpu().numpy().tolist()
-    logger.info("CLIP embedding generated successfully.")
-    return embedding_list, base64_cropped_image, actual_crop_bbox
-
-def fit_3dmm_on_face(pil_image_rgb: Image.Image, face_bbox: List[int]) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[List[int]]]:
-    threedmm_model_instance = model_loader.get_threedmm_model()
-    if not threedmm_model_instance:
-        logger.warning("3DMM model not available (via loader). Skipping 3DMM fitting.")
-        return None, None, None 
-    if not face_bbox:
-        logger.warning("No face bounding box provided for 3DMM fitting.")
-        return None, None, None
-        
-    logger.info(f"Performing 3DMM fitting on face with bbox: {face_bbox}")
-    xmin, ymin, xmax, ymax = face_bbox
-    if xmin >= xmax or ymin >= ymax:
-        logger.error(f"Invalid face_bbox for 3DMM: {face_bbox}")
-        return None, None, face_bbox # Return bbox even if invalid for context
-    
-    cropped_face = pil_image_rgb.crop(face_bbox)
-    if cropped_face.width == 0 or cropped_face.height == 0:
-        logger.error(f"Cropped face for 3DMM is empty using bbox: {face_bbox}")
-        return None, None, face_bbox # Return bbox even if crop is empty
-
-    buffered = io.BytesIO()
-    cropped_face.save(buffered, format="PNG")
-    base64_cropped_face = base64.b64encode(buffered.getvalue()).decode("utf-8")
-    logger.info(f"Cropped face for 3DMM (size: {cropped_face.size}) encoded to base64.")
-
-    mock_3dmm_params = {"shape_coeffs": [0.1]*50, "expression_coeffs": [0.2]*20, "pose": [0,0,0,1,0,0]}
-    logger.info(f"Mock 3DMM fitting completed for face in bbox: {face_bbox}")
-    return mock_3dmm_params, base64_cropped_face, face_bbox
+# --- Helper Functions for Image Processing have been moved to app/services/ ---
 
 # --- API Endpoint ---
 
@@ -306,7 +150,12 @@ async def analyze_image(request: ImageAnalysisRequest):
                 else:
                     raise ValueError(f"Unsupported target '{target}' for embed_clip_vit_b_32.")
                 
-                embedding_list, b64_img, bbox_used = get_clip_embedding(shared_context["pil_image_rgb"], crop_bbox=crop_for_embedding)
+                # Pass MODEL_NAME_CLIP to the service function
+                embedding_list, b64_img, bbox_used = get_clip_embedding(
+                    shared_context["pil_image_rgb"], 
+                    clip_model_name=MODEL_NAME_CLIP, # Pass the default model name
+                    crop_bbox=crop_for_embedding
+                )
                 current_result_data = embedding_list
                 current_cropped_image_base64 = b64_img
                 current_cropped_image_bbox = bbox_used
@@ -334,7 +183,10 @@ async def analyze_image(request: ImageAnalysisRequest):
                          current_cropped_image_bbox = bbox_used
                          # If params and b64_img are None, fit_3dmm_on_face already logged warnings or errors.
                          # We might raise a more generic error if the operation was expected to succeed but returned None.
-                         if params is None and model_loader.get_threedmm_model() is not None: # Check if model was supposed to be available
+                         # Accessing model_loader directly here is less ideal after refactoring,
+                         # but for this specific error check, it's a small point.
+                         # The core logic of whether the 3dmm model is available is handled within fit_3dmm_on_face.
+                         if params is None and app.core.model_loader.get_threedmm_model() is not None: # Check if model was supposed to be available
                              raise ValueError("3DMM fitting failed for the prominent face despite model being configured (mocked).")
                     else: # No face found
                         raise ValueError("No prominent face found for 3DMM fitting.")
