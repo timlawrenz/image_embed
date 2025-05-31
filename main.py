@@ -13,6 +13,8 @@ from PIL import Image
 import base64 # Added
 from app.pydantic_models import AnalysisTask, ImageAnalysisRequest, OperationResult, ImageAnalysisResponse
 
+from app.core import model_loader # Added
+
 # --- Configuration & Initialization ---
 
 # Setup logging
@@ -27,30 +29,16 @@ app = FastAPI(
 )
 
 # --- Model Loading ---
-device = "cuda" if torch.cuda.is_available() else "cpu"
-logger.info(f"Using device: {device}")
+# Models are now loaded on-demand by app.core.model_loader
+# DEVICE = model_loader.get_device() # Device is managed by model_loader
 
-# CLIP Model
-MODEL_NAME_CLIP = "ViT-B/32"
-try:
-    clip_model, clip_preprocess = clip.load(MODEL_NAME_CLIP, device=device, jit=False)
-    logger.info(f"CLIP model '{MODEL_NAME_CLIP}' loaded successfully on {device}.")
-except Exception as e:
-    logger.exception("Failed to load CLIP model.")
-    raise RuntimeError(f"Could not load CLIP model: {e}") from e
+# Default CLIP model name (can be made configurable or part of request later)
+MODEL_NAME_CLIP = "ViT-B/32" 
 
-# Person Detection Model (Faster R-CNN)
-try:
-    person_detection_model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=torchvision.models.detection.FasterRCNN_ResNet50_FPN_Weights.DEFAULT)
-    person_detection_model.to(device)
-    person_detection_model.eval()
-    logger.info("Person detection model (Faster R-CNN) loaded successfully.")
-except Exception as e:
-    logger.exception("Failed to load person detection model.")
-    raise RuntimeError(f"Could not load person detection model: {e}") from e
-
-face_detection_model = None # Placeholder
-threedmm_model = None # Placeholder
+# Placeholders for models that are not yet fully implemented in the loader
+# but whose getter functions exist in model_loader.
+# face_detection_model = model_loader.get_face_detection_model()
+# threedmm_model = model_loader.get_threedmm_model()
 
 # --- Pydantic Models have been moved to app/pydantic_models.py ---
 
@@ -79,10 +67,13 @@ def download_image(image_url_str: str) -> Image.Image:
 
 def get_prominent_person_bbox(pil_image_rgb: Image.Image) -> Optional[List[int]]:
     logger.info("Attempting to detect prominent person.")
+    person_detection_model_instance = model_loader.get_person_detection_model()
+    current_device = model_loader.get_device()
+
     transform_detection = T.Compose([T.ToTensor()])
-    img_tensor_detection = transform_detection(pil_image_rgb).to(device)
+    img_tensor_detection = transform_detection(pil_image_rgb).to(current_device)
     with torch.no_grad():
-        predictions = person_detection_model([img_tensor_detection])
+        predictions = person_detection_model_instance([img_tensor_detection])
     scores = predictions[0]['scores']
     labels = predictions[0]['labels']
     boxes = predictions[0]['boxes']
@@ -112,8 +103,9 @@ def get_prominent_person_bbox(pil_image_rgb: Image.Image) -> Optional[List[int]]
 
 def get_prominent_face_bbox_in_region(pil_image_rgb: Image.Image, person_bbox: Optional[List[int]]) -> Optional[List[int]]:
     # (Implementation from previous version, including placeholder logic)
-    if not face_detection_model:
-        logger.warning("Face detection model not available. Skipping face detection.")
+    face_detection_model_instance = model_loader.get_face_detection_model()
+    if not face_detection_model_instance:
+        logger.warning("Face detection model not available (via loader). Skipping face detection.")
         return None
     target_image_for_face_detection = pil_image_rgb
     offset_x, offset_y = 0, 0
@@ -152,6 +144,11 @@ def get_prominent_face_bbox_in_region(pil_image_rgb: Image.Image, person_bbox: O
 
 
 def get_clip_embedding(pil_image_rgb: Image.Image, crop_bbox: Optional[List[int]] = None) -> Tuple[List[float], Optional[str], Optional[List[int]]]:
+    # For now, get_clip_embedding uses the globally defined MODEL_NAME_CLIP.
+    # This will be parameterized in Stage 2.
+    clip_model_instance, clip_preprocess_instance = model_loader.get_clip_model_and_preprocess(MODEL_NAME_CLIP)
+    current_device = model_loader.get_device()
+
     image_to_embed = pil_image_rgb
     base64_cropped_image = None
     actual_crop_bbox = None
@@ -173,17 +170,18 @@ def get_clip_embedding(pil_image_rgb: Image.Image, crop_bbox: Optional[List[int]
         base64_cropped_image = base64.b64encode(buffered.getvalue()).decode("utf-8")
         logger.info(f"Cropped image for embedding (size: {image_to_embed.size}) encoded to base64.")
 
-    logger.info(f"Generating CLIP embedding for image (size: {image_to_embed.size}).")
-    image_input = clip_preprocess(image_to_embed).unsqueeze(0).to(device)
+    logger.info(f"Generating CLIP embedding for image (size: {image_to_embed.size}) using {MODEL_NAME_CLIP}.")
+    image_input = clip_preprocess_instance(image_to_embed).unsqueeze(0).to(current_device)
     with torch.no_grad():
-        embedding_tensor = clip_model.encode_image(image_input)
+        embedding_tensor = clip_model_instance.encode_image(image_input)
     embedding_list = embedding_tensor[0].cpu().numpy().tolist()
     logger.info("CLIP embedding generated successfully.")
     return embedding_list, base64_cropped_image, actual_crop_bbox
 
 def fit_3dmm_on_face(pil_image_rgb: Image.Image, face_bbox: List[int]) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[List[int]]]:
-    if not threedmm_model:
-        logger.warning("3DMM model not available. Skipping 3DMM fitting.")
+    threedmm_model_instance = model_loader.get_threedmm_model()
+    if not threedmm_model_instance:
+        logger.warning("3DMM model not available (via loader). Skipping 3DMM fitting.")
         return None, None, None 
     if not face_bbox:
         logger.warning("No face bounding box provided for 3DMM fitting.")
@@ -329,15 +327,15 @@ async def analyze_image(request: ImageAnalysisRequest):
                         face_detection_done = True
                     
                     if shared_context["prominent_face_bbox"]:
-                         if not threedmm_model: 
-                            raise ValueError("3DMM model not available for fitting.")
+                         # The check for model availability is now inside fit_3dmm_on_face using the loader
                          params, b64_img, bbox_used = fit_3dmm_on_face(shared_context["pil_image_rgb"], shared_context["prominent_face_bbox"])
                          current_result_data = params
                          current_cropped_image_base64 = b64_img
                          current_cropped_image_bbox = bbox_used
-                         if params is None and b64_img is None and threedmm_model: # Check if model was available but fitting still failed
-                             # This condition implies an issue within fit_3dmm_on_face post model check (e.g. bad bbox for crop, empty crop)
-                             raise ValueError("3DMM fitting failed for the prominent face.")
+                         # If params and b64_img are None, fit_3dmm_on_face already logged warnings or errors.
+                         # We might raise a more generic error if the operation was expected to succeed but returned None.
+                         if params is None and model_loader.get_threedmm_model() is not None: # Check if model was supposed to be available
+                             raise ValueError("3DMM fitting failed for the prominent face despite model being configured (mocked).")
                     else: # No face found
                         raise ValueError("No prominent face found for 3DMM fitting.")
                 else:
