@@ -9,8 +9,9 @@ import torchvision # Added for detection model
 import torchvision.transforms as T # Added for detection model
 from fastapi import FastAPI, HTTPException
 from PIL import Image
-from pydantic import BaseModel, HttpUrl, Field # Added Field
+# Pydantic models moved to app.pydantic_models
 import base64 # Added
+from app.pydantic_models import AnalysisTask, ImageAnalysisRequest, OperationResult, ImageAnalysisResponse
 
 # --- Configuration & Initialization ---
 
@@ -51,28 +52,7 @@ except Exception as e:
 face_detection_model = None # Placeholder
 threedmm_model = None # Placeholder
 
-# --- Pydantic Models ---
-
-class AnalysisTask(BaseModel):
-    operation_id: str = Field(..., description="A unique ID for this specific requested operation, will be used as a key in the results.")
-    type: str = Field(..., description="Type of operation to perform.", examples=["embed_clip_vit_b_32", "detect_bounding_box"])
-    # Make params optional for default behaviors
-    params: Optional[Dict[str, Any]] = Field(None, description="Parameters for the operation, e.g., {'target': 'whole_image' | 'prominent_person' | 'prominent_face'}")
-
-class ImageAnalysisRequest(BaseModel):
-    image_url: HttpUrl
-    tasks: List[AnalysisTask]
-
-class OperationResult(BaseModel):
-    status: str = "success" # "success" or "error" or "skipped"
-    data: Optional[Any] = None
-    cropped_image_bbox: Optional[List[int]] = Field(None, description="Bounding box used to generate the cropped_image_base64, if applicable.")
-    cropped_image_base64: Optional[str] = Field(None, description="Base64 encoded string of the PNG cropped image processed by this operation, if applicable.")
-    error_message: Optional[str] = None
-
-class ImageAnalysisResponse(BaseModel):
-    image_url: str
-    results: Dict[str, OperationResult]
+# --- Pydantic Models have been moved to app/pydantic_models.py ---
 
 # --- Helper Functions for Image Processing ---
 
