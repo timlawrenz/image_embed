@@ -1,79 +1,110 @@
-# Image Embedding API
+# Advanced Image Analysis API
 
-A simple FastAPI service that generates embeddings for images using OpenAI's CLIP model. You provide an image URL, and the API returns a vector embedding of that image.
+An advanced FastAPI service that performs various analyses on images from a URL. You provide an image URL and a list of analysis tasks, and the API returns the results for each task.
 
 ## Features
 
-*   Accepts an image URL as input.
-*   Downloads the image.
-*   Converts the image to RGB format if necessary (e.g., handling alpha channels).
-*   **Detects humans in the image (using Faster R-CNN with a ResNet50 FPN backbone from `torchvision.models.detection`):**
-    *   If one or more humans are detected, the image is cropped to the bounding box of the human with the highest detection confidence. The embedding is then generated for this cropped region.
-    *   If no human is detected, the embedding is generated for the entire image.
-*   Preprocesses the (potentially cropped) image for CLIP.
-*   Generates an image embedding using a specified CLIP model (default: "ViT-B/32").
-*   Returns the image URL, the generated embedding, and the model name used.
-*   Basic error handling for image download, processing, and human detection.
+*   Accepts an image URL and a list of analysis tasks as input.
+*   Downloads the image once per request.
+*   Converts the image to RGB format if necessary.
+*   Performs requested operations, which can include:
+    *   **Human Detection:** Detects the most prominent person using Faster R-CNN.
+    *   **Face Detection (Placeholder):** Detects the most prominent face (currently mock implementation).
+    *   **CLIP Embedding:** Generates image embeddings using a specified CLIP model (default: "ViT-B/32") on the whole image, a detected person, or a detected face.
+    *   **3DMM Fitting (Placeholder):** Fits a 3D Morphable Model to a detected face (currently mock implementation).
+*   For operations involving cropping (e.g., embedding a detected face), the API returns:
+    *   The primary result of the operation (e.g., embedding vector, 3DMM parameters).
+    *   The bounding box coordinates used for the crop.
+    *   A base64 encoded PNG string of the actual cropped image.
+*   Returns the original image URL and a dictionary of results, keyed by a user-provided `operation_id` for each task.
+*   Efficiently reuses detected bounding boxes for subsequent tasks within the same request.
+*   Basic error handling for image download, processing, and individual task execution.
 
 ## API Endpoint
 
-### `POST /generate_embedding_from_url/`
+### `POST /analyze_image/`
 
-Generates an image embedding from a given image URL.
+Performs a series of analyses on an image from a given URL based on a list of tasks.
 
 **Request Body:**
 
 ```json
 {
-  "image_url": "YOUR_IMAGE_URL_HERE"
+  "image_url": "YOUR_IMAGE_URL_HERE",
+  "tasks": [
+    {
+      "operation_id": "unique_task_id_1",
+      "type": "embed_clip_vit_b_32",
+      "params": {"target": "whole_image"}
+    },
+    {
+      "operation_id": "unique_task_id_2",
+      "type": "detect_bounding_box",
+      "params": {"target": "prominent_person"}
+    }
+    // ... more tasks
+  ]
 }
 ```
 
 *   `image_url` (string, required): A valid HTTP or HTTPS URL pointing to an image.
+*   `tasks` (array of objects, required): A list of analysis tasks to perform. Each task object contains:
+    *   `operation_id` (string, required): A unique identifier for this task, which will be used as a key in the response's `results` dictionary.
+    *   `type` (string, required): The type of operation to perform (see "Available Operations" below).
+    *   `params` (object, optional): Parameters specific to the operation type. Common parameters include:
+        *   `target` (string): Specifies the region of the image to operate on (e.g., "whole\_image", "prominent\_person", "prominent\_face"). Defaults vary by operation type.
+        *   `face_context` (string): For face-related operations, specifies whether to search for a face within a "prominent\_person" bounding box or the "whole\_image". Defaults to "prominent\_person".
 
 **Response Body (Success - 200 OK):**
 
 ```json
 {
   "image_url": "THE_IMAGE_URL_PROVIDED",
-  "embedding": [0.123, 0.456, ..., 0.789],
-  "model_name": "ViT-B/32"
+  "results": {
+    "unique_task_id_1": {
+      "status": "success", // or "error", "skipped"
+      "data": [0.123, ..., 0.789], // e.g., embedding vector
+      "cropped_image_bbox": null, // null if not applicable
+      "cropped_image_base64": null, // null if not applicable
+      "error_message": null
+    },
+    "unique_task_id_2": {
+      "status": "success",
+      "data": [100, 150, 250, 350], // e.g., bounding box [xmin, ymin, xmax, ymax]
+      "cropped_image_bbox": null, // Bbox detection itself doesn't return a *cropped image* of the bbox
+      "cropped_image_base64": null,
+      "error_message": null
+    },
+    "task_embedding_cropped_face": {
+        "status": "success",
+        "data": [0.321, ..., 0.987], // Embedding of the cropped face
+        "cropped_image_bbox": [50, 60, 150, 180], // Bbox of the face used for this embedding
+        "cropped_image_base64": "iVBORw0KGgoAAAANSUhEUgAAAGQAAABkCAYAAABw4pVU...", // Base64 PNG of the cropped face
+        "error_message": null
+    }
+    // ... results for other tasks
+  }
 }
 ```
 
-*   `image_url` (string): The URL of the image for which the embedding was generated.
-*   `embedding` (array of floats): The generated image embedding vector.
-*   `model_name` (string): The name of the CLIP model used to generate the embedding.
+*   `image_url` (string): The URL of the image analyzed.
+*   `results` (object): A dictionary where each key is an `operation_id` from the request, and the value is an `OperationResult` object:
+    *   `status` (string): "success", "error", or "skipped".
+    *   `data` (any): The primary result of the operation (e.g., embedding vector, bounding box coordinates, 3DMM parameters).
+    *   `cropped_image_bbox` (array of int, optional): If the operation involved cropping (e.g., embedding a face), this is the `[xmin, ymin, xmax, ymax]` bounding box used for the crop.
+    *   `cropped_image_base64` (string, optional): If the operation involved cropping, this is a base64 encoded PNG string of the cropped image.
+    *   `error_message` (string, optional): Details if the status is "error" or "skipped".
 
 **Error Responses:**
 
-*   **400 Bad Request:** If the image URL is invalid, the image cannot be downloaded, or the image cannot be processed.
+*   **400 Bad Request:** If the image URL is invalid, the image cannot be downloaded/processed, or the request structure is invalid.
     ```json
-    {
-      "detail": "Could not download image from URL: <error_details>"
-    }
+    { "detail": "Could not download image from URL: <error_details>" }
     ```
     ```json
-    {
-      "detail": "Could not process image or detect human: <error_details>"
-    }
+    { "detail": "Could not process image: <error_details>" }
     ```
-    ```json
-    {
-      "detail": "Cropped human region resulted in an empty image."
-    }
-    ```
-*   **500 Internal Server Error:** If there's an issue generating the embedding on the server side or an internal error during processing (e.g., invalid bounding box from detection).
-    ```json
-    {
-      "detail": "Failed to generate embedding: <error_details>"
-    }
-    ```
-    ```json
-    {
-      "detail": "Invalid bounding box detected."
-    }
-    ```
+*   Individual task errors/skips are reported within the `results` dictionary for each `operation_id` (see `status` and `error_message` fields above).
 
 ## Setup and Installation
 
@@ -111,12 +142,78 @@ You can use `curl` or any API client (like Postman or Insomnia) to send requests
 **Using `curl`:**
 
 ```bash
-curl -X POST "http://localhost:8000/generate_embedding_from_url/" \
+curl -X POST "http://localhost:8000/analyze_image/" \
      -H "Content-Type: application/json" \
-     -d '{"image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/1200px-Cat03.jpg"}'
+     -d '{
+       "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Official_portrait_of_Barack_Obama.jpg/800px-Official_portrait_of_Barack_Obama.jpg",
+       "tasks": [
+         {
+           "operation_id": "whole_image_embedding",
+           "type": "embed_clip_vit_b_32",
+           "params": {"target": "whole_image"}
+         },
+         {
+           "operation_id": "person_bbox",
+           "type": "detect_bounding_box",
+           "params": {"target": "prominent_person"}
+         },
+         {
+           "operation_id": "face_bbox_from_person",
+           "type": "detect_bounding_box",
+           "params": {"target": "prominent_face", "face_context": "prominent_person"}
+         },
+         {
+           "operation_id": "face_embedding",
+           "type": "embed_clip_vit_b_32",
+           "params": {"target": "prominent_face", "face_context": "prominent_person"}
+         },
+         {
+           "operation_id": "face_3dmm",
+           "type": "fit_3dmm",
+           "params": {"target": "prominent_face", "face_context": "prominent_person"}
+         }
+       ]
+     }'
 ```
 
-This will return a JSON response containing the embedding for the provided cat image.
+This will return a JSON response containing the results for each requested analysis task.
+
+## Available Operations
+
+The `type` field in each task object specifies the operation to perform. Here are the currently available operations:
+
+### `detect_bounding_box`
+Detects a bounding box for a specified target.
+*   **`params`**:
+    *   `target` (string, required):
+        *   `"prominent_person"`: Detects the bounding box of the most prominent person. (Default if `target` is omitted for this operation type).
+        *   `"prominent_face"`: Detects the bounding box of the most prominent face.
+    *   `face_context` (string, optional, default: `"prominent_person"`): When `target` is `"prominent_face"`, this specifies where to look for the face:
+        *   `"prominent_person"`: Looks for a face within the bounding box of the already detected prominent person.
+        *   `"whole_image"`: Looks for a face in the entire image.
+*   **`data` in result**: An array `[xmin, ymin, xmax, ymax]` representing the bounding box. `null` if not found.
+
+### `embed_clip_vit_b_32`
+Generates an embedding using the CLIP ViT-B/32 model.
+*   **`params`**:
+    *   `target` (string, optional, default: `"whole_image"`):
+        *   `"whole_image"`: Generates embedding for the entire image.
+        *   `"prominent_person"`: Generates embedding for the cropped region of the most prominent person. If no person is found, falls back to the whole image.
+        *   `"prominent_face"`: Generates embedding for the cropped region of the most prominent face. Requires a face to be found.
+    *   `face_context` (string, optional, default: `"prominent_person"`): Same as in `detect_bounding_box`, used when `target` is `"prominent_face"`.
+*   **`data` in result**: An array of floats representing the embedding vector.
+*   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if `target` was `"prominent_person"` (and a person was found and cropped) or `"prominent_face"` (and a face was found and cropped).
+
+### `fit_3dmm`
+Fits a 3D Morphable Model (currently a mock implementation).
+*   **`params`**:
+    *   `target` (string, optional, default: `"prominent_face"`):
+        *   `"prominent_face"`: Performs 3DMM fitting on the cropped region of the most prominent face. Requires a face to be found.
+    *   `face_context` (string, optional, default: `"prominent_person"`): Same as in `detect_bounding_box`, used when `target` is `"prominent_face"`.
+*   **`data` in result**: A dictionary containing mock 3DMM parameters. `null` if fitting fails or target not found.
+*   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if a face was found and cropped for 3DMM fitting.
+
+**Note on Placeholders:** Face detection and 3DMM fitting are currently mock implementations. They will return predefined results or indicate that the respective models are not loaded.
 
 ## CLIP Model
 
