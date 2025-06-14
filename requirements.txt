@@ -1,9 +1,10 @@
 fastapi
-uvicorn
-python-multipart
-torch
-torchvision
-torchaudio
 openai-clip
-requests
 Pillow
+pydantic
+python-multipart
+requests
+torch
+torchaudio
+torchvision
+uvicorn[standard]
