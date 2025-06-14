@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from PIL import Image
 # Pydantic models moved to app.pydantic_models
 import base64 # Added
-from app.pydantic_models import AnalysisTask, ImageAnalysisRequest, OperationResult, ImageAnalysisResponse
+from app.pydantic_models import AnalysisTask, ImageAnalysisRequest, OperationResult, ImageAnalysisResponse, AvailableOperationsResponse
 # Services will be imported below, model_loader is used by services
 # from app.core import model_loader # No longer directly used in main.py, but by services
 
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Advanced Image Analysis API",
     description="Performs various analyses on an image from a URL, including embeddings, object detection, and more.",
-    version="0.2.1",
+    version="0.3.0",
 )
 
 # --- Model Loading ---
@@ -47,13 +47,37 @@ MODEL_NAME_CLIP = "ViT-B/32"
 # face_detection_model = model_loader.get_face_detection_model()
 # threedmm_model = model_loader.get_threedmm_model() # This line is commented out
 
-# --- Pydantic Models have been moved to app/pydantic_models.py ---
+# --- Centralized Operation Definitions ---
+AVAILABLE_OPERATIONS = {
+    "detect_bounding_box": {
+        "description": "Detects a bounding box for a specified target.",
+        "allowed_targets": ["prominent_person", "prominent_face"],
+        "default_target": "prominent_person",
+    },
+    "embed_clip_vit_b_32": {
+        "description": f"Generates an embedding using the CLIP {MODEL_NAME_CLIP} model.",
+        "allowed_targets": ["whole_image", "prominent_person", "prominent_face"],
+        "default_target": "whole_image",
+    },
+    "fit_3dmm": {
+        "description": "Fits a 3D Morphable Model (mock implementation).",
+        "allowed_targets": ["prominent_face"],
+        "default_target": "prominent_face",
+    },
+}
 
-# --- Helper Functions for Image Processing have been moved to app/services/ ---
+# --- API Endpoints ---
 
-# --- API Endpoint ---
+@app.get("/available_operations/", response_model=AvailableOperationsResponse, tags=["Configuration"])
+async def get_available_operations():
+    """
+    Provides a list of available analysis operations, their allowed targets,
+    and default targets.
+    """
+    return {"operations": AVAILABLE_OPERATIONS}
 
-@app.post("/analyze_image/", response_model=ImageAnalysisResponse)
+
+@app.post("/analyze_image/", response_model=ImageAnalysisResponse, tags=["Analysis"])
 async def analyze_image(request: ImageAnalysisRequest):
     image_url_str = str(request.image_url)
     logger.info(f"Received analysis request for URL: {image_url_str} with {len(request.tasks)} tasks.")
@@ -78,34 +102,40 @@ async def analyze_image(request: ImageAnalysisRequest):
     for task_def in request.tasks:
         op_id = task_def.operation_id
         op_type = task_def.type
-        # If task_def.params is None, default to an empty dict
         op_params = task_def.params if task_def.params is not None else {}
         
-        # Get target from params, default to None if not specified
+        # Define target here, it may be None initially.
+        # This ensures it's available in the final exception handler's log message.
         target = op_params.get("target")
-        # Get face_context from params, default to 'prominent_person' if not specified
-        face_context = op_params.get("face_context", "prominent_person")
-
-
-        log_details = f"derived target='{target}'"
-        # face_context is relevant if the target is a prominent_face,
-        # or if the operation is fit_3dmm (which defaults to prominent_face).
-        if target == "prominent_face" or op_type == "fit_3dmm":
-            log_details += f", face_context='{face_context}'"
-        
-        logger.info(f"Processing task: id='{op_id}', type='{op_type}', params='{op_params}' ({log_details})")
 
         try:
+            # --- Centralized Validation and Defaulting ---
+            op_info = AVAILABLE_OPERATIONS.get(op_type)
+            if not op_info:
+                raise ValueError(f"Unsupported operation type: '{op_type}'")
+
+            # If target was not specified in params, get the default.
+            if target is None:
+                target = op_info["default_target"]
+                logger.info(f"Task {op_id}: 'target' not specified for '{op_type}', defaulting to '{target}'.")
+            
+            # Validate the final target against the allowed list for the operation.
+            if target not in op_info["allowed_targets"]:
+                raise ValueError(f"Unsupported target '{target}' for operation '{op_type}'. Allowed targets are: {op_info['allowed_targets']}")
+
+            face_context = op_params.get("face_context", "prominent_person")
+            # --- End Validation ---
+
+            log_message = f"Processing task: id='{op_id}', type='{op_type}', target='{target}'"
+            if "face" in target:
+                 log_message += f", face_context='{face_context}'"
+            logger.info(log_message)
+
             current_result_data: Optional[Any] = None
             current_cropped_image_base64: Optional[str] = None
             current_cropped_image_bbox: Optional[List[int]] = None
             
             if op_type == "detect_bounding_box":
-                # Default target for detect_bounding_box if not specified
-                if target is None:
-                    logger.info(f"Task {op_id}: 'target' not specified for detect_bounding_box, defaulting to 'prominent_person'.")
-                    target = "prominent_person"
-
                 if target == "prominent_person":
                     if not person_detection_done:
                         shared_context["prominent_person_bbox"] = get_prominent_person_bbox(shared_context["pil_image_rgb"])
@@ -120,15 +150,8 @@ async def analyze_image(request: ImageAnalysisRequest):
                         shared_context["prominent_face_bbox"] = get_prominent_face_bbox_in_region(shared_context["pil_image_rgb"], person_bbox_for_face)
                         face_detection_done = True
                     current_result_data = shared_context["prominent_face_bbox"]
-                else:
-                    raise ValueError(f"Unsupported target '{target}' for detect_bounding_box.")
             
             elif op_type == "embed_clip_vit_b_32":
-                # Default target for embedding if not specified
-                if target is None:
-                    logger.info(f"Task {op_id}: 'target' not specified for embed_clip_vit_b_32, defaulting to 'whole_image'.")
-                    target = "whole_image" 
-
                 crop_for_embedding = None
                 if target == "whole_image":
                     pass # No crop needed
@@ -140,7 +163,6 @@ async def analyze_image(request: ImageAnalysisRequest):
                         crop_for_embedding = shared_context["prominent_person_bbox"]
                     else: # No person found, embed whole image as fallback
                         logger.warning(f"Task {op_id}: prominent_person target for embedding, but no person found. Embedding whole image as fallback.")
-                        # crop_for_embedding remains None, so whole image is used by get_clip_embedding
                 elif target == "prominent_face":
                     if not face_detection_done: # Ensure face detection has run if needed
                          if not person_detection_done and face_context == "prominent_person":
@@ -153,25 +175,17 @@ async def analyze_image(request: ImageAnalysisRequest):
                         crop_for_embedding = shared_context["prominent_face_bbox"]
                     else: # No face found
                         raise ValueError("No prominent face found for embedding.")
-                else:
-                    raise ValueError(f"Unsupported target '{target}' for embed_clip_vit_b_32.")
                 
-                # Pass MODEL_NAME_CLIP to the service function
                 embedding_list, b64_img, bbox_used = get_clip_embedding(
                     shared_context["pil_image_rgb"], 
-                    clip_model_name=MODEL_NAME_CLIP, # Pass the default model name
+                    clip_model_name=MODEL_NAME_CLIP,
                     crop_bbox=crop_for_embedding
                 )
                 current_result_data = embedding_list
                 current_cropped_image_base64 = b64_img
                 current_cropped_image_bbox = bbox_used
 
-
             elif op_type == "fit_3dmm":
-                if target is None:
-                    logger.info(f"Task {op_id}: 'target' not specified for fit_3dmm, defaulting to 'prominent_face'.")
-                    target = "prominent_face"
-
                 if target == "prominent_face":
                     if not face_detection_done: # Ensure face detection has run if needed
                         if not person_detection_done and face_context == "prominent_person":
@@ -182,24 +196,14 @@ async def analyze_image(request: ImageAnalysisRequest):
                         face_detection_done = True
                     
                     if shared_context["prominent_face_bbox"]:
-                         # The check for model availability is now inside fit_3dmm_on_face using the loader
                          params, b64_img, bbox_used = fit_3dmm_on_face(shared_context["pil_image_rgb"], shared_context["prominent_face_bbox"])
                          current_result_data = params
                          current_cropped_image_base64 = b64_img
                          current_cropped_image_bbox = bbox_used
-                         # If params and b64_img are None, fit_3dmm_on_face already logged warnings or errors.
-                         # We might raise a more generic error if the operation was expected to succeed but returned None.
-                         # Accessing model_loader directly here is less ideal after refactoring,
-                         # but for this specific error check, it's a small point.
-                         # The core logic of whether the 3dmm model is available is handled within fit_3dmm_on_face.
-                         if params is None and app.core.model_loader.get_threedmm_model() is not None: # Check if model was supposed to be available
+                         if params is None and app.core.model_loader.get_threedmm_model() is not None:
                              raise ValueError("3DMM fitting failed for the prominent face despite model being configured (mocked).")
                     else: # No face found
                         raise ValueError("No prominent face found for 3DMM fitting.")
-                else:
-                    raise ValueError(f"Unsupported target '{target}' for fit_3dmm.")
-            else:
-                raise ValueError(f"Unsupported operation type: {op_type}")
 
             analysis_results[op_id] = OperationResult(
                 status="success", 

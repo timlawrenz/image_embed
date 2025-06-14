@@ -19,8 +19,9 @@ An advanced FastAPI service that performs various analyses on images from a URL.
 *   Returns the original image URL and a dictionary of results, keyed by a user-provided `operation_id` for each task.
 *   Efficiently reuses detected bounding boxes for subsequent tasks within the same request.
 *   Basic error handling for image download, processing, and individual task execution.
+*   An endpoint to discover available operations at runtime.
 
-## API Endpoint
+## API Endpoints
 
 ### `POST /analyze_image/`
 
@@ -106,6 +107,43 @@ Performs a series of analyses on an image from a given URL based on a list of ta
     ```
 *   Individual task errors/skips are reported within the `results` dictionary for each `operation_id` (see `status` and `error_message` fields above).
 
+### `GET /available_operations/`
+
+Provides a list of available analysis operations that can be used in the `tasks` array for the `/analyze_image` endpoint. It details each operation's allowed targets and default target.
+
+**Response Body (Success - 200 OK):**
+
+```json
+{
+  "operations": {
+    "detect_bounding_box": {
+      "description": "Detects a bounding box for a specified target.",
+      "allowed_targets": [
+        "prominent_person",
+        "prominent_face"
+      ],
+      "default_target": "prominent_person"
+    },
+    "embed_clip_vit_b_32": {
+      "description": "Generates an embedding using the CLIP ViT-B/32 model.",
+      "allowed_targets": [
+        "whole_image",
+        "prominent_person",
+        "prominent_face"
+      ],
+      "default_target": "whole_image"
+    },
+    "fit_3dmm": {
+      "description": "Fits a 3D Morphable Model (mock implementation).",
+      "allowed_targets": [
+        "prominent_face"
+      ],
+      "default_target": "prominent_face"
+    }
+  }
+}
+```
+
 ## Setup and Installation
 
 1.  **Clone the repository (if applicable):**
@@ -133,7 +171,7 @@ To run the FastAPI application locally for development:
 uvicorn main:app --reload
 ```
 
-The application will typically be available at `http://localhost:8000`.
+The application will typically be available at `http://localhost:8000`. You can access the auto-generated API documentation at `http://localhost:8000/docs`.
 
 ## Usage Example
 
@@ -169,8 +207,7 @@ curl -X POST "http://localhost:8000/analyze_image/" \
          },
          {
            "operation_id": "face_3dmm",
-           "type": "fit_3dmm",
-           "params": {"target": "prominent_face", "face_context": "prominent_person"}
+           "type": "fit_3dmm"
          }
        ]
      }'
@@ -180,7 +217,7 @@ This will return a JSON response containing the results for each requested analy
 
 ## Available Operations
 
-The `type` field in each task object specifies the operation to perform. Here are the currently available operations:
+The `type` field in each task object specifies the operation to perform. You can retrieve a live list of these from the `GET /available_operations/` endpoint.
 
 ### `detect_bounding_box`
 Detects a bounding box for a specified target.
