@@ -37,7 +37,8 @@ def get_prominent_person_bbox(pil_image_rgb: Image.Image) -> Optional[List[int]]
              return None
         confidence = scores[highest_score_person_global_idx].item()
         logger.info(f"Prominent person detected with bbox: [{xmin}, {ymin}, {xmax}, {ymax}], confidence: {confidence:.2f}")
-        return [xmin, ymin, xmax, ymax]
+        # Convert numpy types to standard python int for JSON serialization
+        return [int(xmin), int(ymin), int(xmax), int(ymax)]
     else:
         logger.info("No person detected.")
         return None
@@ -77,6 +78,7 @@ def get_prominent_face_bbox_in_region(pil_image_rgb: Image.Image, person_bbox: O
         return None
 
     xmin_f, ymin_f, xmax_f, ymax_f = face_bbox_relative
-    final_face_bbox = [xmin_f + offset_x, ymin_f + offset_y, xmax_f + offset_x, ymax_f + offset_y]
+    # Convert to standard python int for JSON serialization
+    final_face_bbox = [int(xmin_f + offset_x), int(ymin_f + offset_y), int(xmax_f + offset_x), int(ymax_f + offset_y)]
     logger.info(f"Prominent face detected with final bbox: {final_face_bbox}")
     return final_face_bbox
