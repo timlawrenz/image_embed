@@ -224,36 +224,6 @@ async def analyze_image(request: ImageAnalysisRequest):
 
     return ImageAnalysisResponse(image_url=image_url_str, results=analysis_results)
 
-# --- How to Run (for development) ---
-# uvicorn main:app --reload
-#
-# Example POST request to http://localhost:8000/analyze_image/
-# {
-#   "image_url": "YOUR_IMAGE_URL_HERE",
-#   "tasks": [
-#     // Embedding the whole image (target specified)
-#     {"operation_id": "whole_image_emb", "type": "embed_clip_vit_b_32", "params": {"target": "whole_image"}},
-#     
-#     // Detecting prominent person (target can be omitted, defaults to prominent_person)
-#     {"operation_id": "person_box_default", "type": "detect_bounding_box"}, 
-#     // Explicit version:
-#     // {"operation_id": "person_box_explicit", "type": "detect_bounding_box", "params": {"target": "prominent_person"}},
-#     
-#     // Embedding prominent person (target can be specified, or if omitted, could default - here we default embed to whole_image unless specified)
-#     // To get prominent person embedding, you MUST specify target.
-#     {"operation_id": "person_emb", "type": "embed_clip_vit_b_32", "params": {"target": "prominent_person"}},
-#
-#     // Detecting prominent face (target can be omitted, defaults to prominent_face; face_context defaults to prominent_person)
-#     {"operation_id": "face_box_default", "type": "detect_bounding_box", "params": {"target":"prominent_face"}}, // target prominent_face needed here
-#     // Explicit version:
-#     // {"operation_id": "face_box_explicit", "type": "detect_bounding_box", "params": {"target": "prominent_face", "face_context": "prominent_person"}},
-#
-#     // Fitting 3DMM on prominent face (target can be omitted for fit_3dmm, defaults to prominent_face; face_context defaults to prominent_person)
-#     {"operation_id": "face_3dmm_default", "type": "fit_3dmm"}
-#     // Explicit version:
-#     // {"operation_id": "face_3dmm_explicit", "type": "fit_3dmm", "params": {"target": "prominent_face", "face_context": "prominent_person"}}
-#   ]
-# }
 
 if __name__ == "__main__":
     import uvicorn

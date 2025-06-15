@@ -179,38 +179,10 @@ You can use `curl` or any API client (like Postman or Insomnia) to send requests
 
 **Using `curl`:**
 
+The command below should be run as a single line.
+
 ```bash
-curl -X POST "http://localhost:8000/analyze_image/" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Official_portrait_of_Barack_Obama.jpg/800px-Official_portrait_of_Barack_Obama.jpg",
-       "tasks": [
-         {
-           "operation_id": "whole_image_embedding",
-           "type": "embed_clip_vit_b_32",
-           "params": {"target": "whole_image"}
-         },
-         {
-           "operation_id": "person_bbox",
-           "type": "detect_bounding_box",
-           "params": {"target": "prominent_person"}
-         },
-         {
-           "operation_id": "face_bbox_from_person",
-           "type": "detect_bounding_box",
-           "params": {"target": "prominent_face", "face_context": "prominent_person"}
-         },
-         {
-           "operation_id": "face_embedding",
-           "type": "embed_clip_vit_b_32",
-           "params": {"target": "prominent_face", "face_context": "prominent_person"}
-         },
-         {
-           "operation_id": "face_3dmm",
-           "type": "fit_3dmm"
-         }
-       ]
-     }'
+curl -X POST "http://localhost:8000/analyze_image/" -H "Content-Type: application/json" -d '{"image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Official_portrait_of_Barack_Obama.jpg/800px-Official_portrait_of_Barack_Obama.jpg", "tasks": [{"operation_id": "whole_image_embedding", "type": "embed_clip_vit_b_32", "params": {"target": "whole_image"}}, {"operation_id": "person_bbox", "type": "detect_bounding_box", "params": {"target": "prominent_person"}}, {"operation_id": "face_bbox_from_person", "type": "detect_bounding_box", "params": {"target": "prominent_face", "face_context": "prominent_person"}}, {"operation_id": "face_embedding", "type": "embed_clip_vit_b_32", "params": {"target": "prominent_face", "face_context": "prominent_person"}}, {"operation_id": "face_3dmm", "type": "fit_3dmm"}]}'
 ```
 
 This will return a JSON response containing the results for each requested analysis task.
