@@ -2,6 +2,7 @@ import logging
 import torch
 import clip
 import torchvision
+from facenet_pytorch import MTCNN
 
 logger = logging.getLogger(__name__)
 
@@ -72,12 +73,23 @@ def get_person_detection_model():
 
 def get_face_detection_model():
     """
-    Placeholder for face detection model loading.
+    Loads the MTCNN model for face detection from facenet-pytorch.
+    Caches the model for subsequent calls.
     """
     cache_key = "face_detection_model"
     if cache_key not in _loaded_models:
-        logger.warning("ModelLoader: Face detection model not implemented. Returning None.")
-        _loaded_models[cache_key] = None # Cache the fact that it's None
+        logger.info("ModelLoader: Loading Face detection model (MTCNN)...")
+        try:
+            # keep_all=True returns all faces, not just the one with the highest probability
+            # this allows the service layer to decide which face is 'prominent'
+            model = MTCNN(device=DEVICE, keep_all=True)
+            _loaded_models[cache_key] = model
+            logger.info("ModelLoader: Face detection model loaded and cached successfully.")
+        except Exception as e:
+            logger.exception("ModelLoader: Failed to load face detection model.")
+            # Set to None so we don't retry on every call in this session
+            _loaded_models[cache_key] = None
+    
     return _loaded_models[cache_key]
 
 def get_threedmm_model():

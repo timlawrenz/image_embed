@@ -1,3 +1,4 @@
+facenet-pytorch
 fastapi
 openai-clip
 Pillow

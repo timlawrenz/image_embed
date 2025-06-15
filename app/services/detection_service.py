@@ -48,6 +48,7 @@ def get_prominent_face_bbox_in_region(pil_image_rgb: Image.Image, person_bbox: O
     if not face_detection_model_instance:
         logger.warning("Face detection model not available (via loader). Skipping face detection.")
         return None
+
     target_image_for_face_detection = pil_image_rgb
     offset_x, offset_y = 0, 0
     if person_bbox:
@@ -63,22 +64,28 @@ def get_prominent_face_bbox_in_region(pil_image_rgb: Image.Image, person_bbox: O
             return None
     else:
         logger.info("Performing face detection on whole image (no person_bbox provided).")
-    # Mock detection for demonstration
-    if person_bbox: # This mock logic implies face detection is only attempted if a person_bbox is available
-        pw = target_image_for_face_detection.width
-        ph = target_image_for_face_detection.height
-        if pw > 10 and ph > 10 :
-            face_bbox_relative = [int(pw*0.1), int(ph*0.1), int(pw*0.4), int(ph*0.4)] # Example relative coordinates
-            logger.info(f"Mock face detected in region with relative bbox: {face_bbox_relative}")
-        else:
-            logger.info(f"Person region too small for mock face detection: w={pw}, h={ph}")
-            return None
-    else: # No person_bbox means we are checking the whole image
-        logger.info("Mock face detection: No person_bbox, so no face detected on whole image for this mock.")
+
+    # Use the MTCNN model to detect faces
+    try:
+        boxes, probs = face_detection_model_instance.detect(target_image_for_face_detection)
+    except Exception as e:
+        logger.exception(f"Face detection model failed during inference: {e}")
         return None
 
-    xmin_f, ymin_f, xmax_f, ymax_f = face_bbox_relative
-    # Convert to standard python int for JSON serialization
+    # MTCNN returns None if no faces are found
+    if boxes is None or len(boxes) == 0:
+        logger.info("No faces detected in the target region.")
+        return None
+
+    # Find the face with the highest probability
+    best_prob_idx = probs.argmax()
+    best_box = boxes[best_prob_idx]
+    best_prob = probs[best_prob_idx]
+
+    xmin_f, ymin_f, xmax_f, ymax_f = best_box
+    
+    # Add offset to convert to absolute coordinates and ensure values are JSON-serializable Python ints
     final_face_bbox = [int(xmin_f + offset_x), int(ymin_f + offset_y), int(xmax_f + offset_x), int(ymax_f + offset_y)]
-    logger.info(f"Prominent face detected with final bbox: {final_face_bbox}")
+    logger.info(f"Prominent face detected with final bbox: {final_face_bbox}, confidence: {best_prob:.2f}")
+
     return final_face_bbox
