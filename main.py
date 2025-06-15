@@ -1,5 +1,6 @@
 import io
 import logging
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Tuple # Added Tuple
 
 import clip
@@ -13,7 +14,7 @@ from PIL import Image
 import base64 # Added
 from app.pydantic_models import AnalysisTask, ImageAnalysisRequest, OperationResult, ImageAnalysisResponse, AvailableOperationsResponse
 # Services will be imported below, model_loader is used by services
-# from app.core import model_loader # No longer directly used in main.py, but by services
+from app.core import model_loader
 
 # Import service functions
 from app.services.image_utils import download_image
@@ -28,24 +29,32 @@ from app.services.threedmm_service import fit_3dmm_on_face
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Handles startup and shutdown events for the application.
+    Loads all models on startup by calling the centralized preloader.
+    """
+    logger.info("Application startup: Triggering model pre-loading...")
+    model_loader.preload_all_models(clip_model_name=MODEL_NAME_CLIP)
+    yield
+    logger.info("Application shutting down.")
+
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Advanced Image Analysis API",
     description="Performs various analyses on an image from a URL, including embeddings, object detection, and more.",
     version="0.3.0",
+    lifespan=lifespan,
 )
 
 # --- Model Loading ---
-# Models are now loaded on-demand by app.core.model_loader
-# DEVICE = model_loader.get_device() # Device is managed by model_loader
+# Models are pre-loaded at startup via the lifespan manager.
 
 # Default CLIP model name (can be made configurable or part of request later)
-MODEL_NAME_CLIP = "ViT-B/32" 
-
-# Placeholders for models that are not yet fully implemented in the loader
-# but whose getter functions exist in model_loader.
-# face_detection_model = model_loader.get_face_detection_model()
-# threedmm_model = model_loader.get_threedmm_model() # This line is commented out
+MODEL_NAME_CLIP = "ViT-B/32"
 
 # --- Centralized Operation Definitions ---
 AVAILABLE_OPERATIONS = {
