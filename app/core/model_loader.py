@@ -89,3 +89,15 @@ def get_threedmm_model():
         logger.warning("ModelLoader: 3DMM model not implemented. Returning None.")
         _loaded_models[cache_key] = None # Cache the fact that it's None
     return _loaded_models[cache_key]
+
+def preload_all_models(clip_model_name: str):
+    """
+    Pre-loads all models into the cache at startup.
+    This is called from the main application's lifespan event.
+    """
+    logger.info("--- Starting Model Pre-loading ---")
+    get_clip_model_and_preprocess(clip_model_name)
+    get_person_detection_model()
+    get_face_detection_model() # Mock, will log warning
+    get_threedmm_model() # Mock, will log warning
+    logger.info("--- Model Pre-loading Complete ---")
