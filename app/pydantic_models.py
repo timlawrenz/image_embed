@@ -21,3 +21,19 @@ class OperationResult(BaseModel):
 class ImageAnalysisResponse(BaseModel):
     image_url: str
     results: Dict[str, OperationResult]
+
+class OperationInfo(BaseModel):
+    description: str = Field(..., description="A description of what the operation does.")
+    allowed_targets: List[str] = Field(..., description="A list of valid targets for this operation.")
+    default_target: str = Field(..., description="The default target used if one is not specified in the request.")
+
+class AvailableOperationsResponse(BaseModel):
+    operations: Dict[str, OperationInfo] = Field(..., description="A dictionary of available operations, keyed by operation type.")
+
+class OperationInfo(BaseModel):
+    description: str = Field(..., description="A description of what the operation does.")
+    allowed_targets: List[str] = Field(..., description="A list of valid targets for this operation.")
+    default_target: str = Field(..., description="The default target used if one is not specified in the request.")
+
+class AvailableOperationsResponse(BaseModel):
+    operations: Dict[str, OperationInfo] = Field(..., description="A dictionary of available operations, keyed by operation type.")
