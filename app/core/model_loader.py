@@ -92,16 +92,6 @@ def get_face_detection_model():
     
     return _loaded_models[cache_key]
 
-def get_threedmm_model():
-    """
-    Placeholder for 3DMM model loading.
-    """
-    cache_key = "threedmm_model"
-    if cache_key not in _loaded_models:
-        logger.warning("ModelLoader: 3DMM model not implemented. Returning None.")
-        _loaded_models[cache_key] = None # Cache the fact that it's None
-    return _loaded_models[cache_key]
-
 def preload_all_models(clip_model_name: str):
     """
     Pre-loads all models into the cache at startup.
@@ -110,6 +100,5 @@ def preload_all_models(clip_model_name: str):
     logger.info("--- Starting Model Pre-loading ---")
     get_clip_model_and_preprocess(clip_model_name)
     get_person_detection_model()
-    get_face_detection_model() # Mock, will log warning
-    get_threedmm_model() # Mock, will log warning
+    get_face_detection_model()
     logger.info("--- Model Pre-loading Complete ---")

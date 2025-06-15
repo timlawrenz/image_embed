@@ -20,7 +20,6 @@ from app.core import model_loader
 from app.services.image_utils import download_image
 from app.services.detection_service import get_prominent_person_bbox, get_prominent_face_bbox_in_region
 from app.services.embedding_service import get_clip_embedding
-from app.services.threedmm_service import fit_3dmm_on_face
 
 
 # --- Configuration & Initialization ---
@@ -67,11 +66,6 @@ AVAILABLE_OPERATIONS = {
         "description": f"Generates an embedding using the CLIP {MODEL_NAME_CLIP} model.",
         "allowed_targets": ["whole_image", "prominent_person", "prominent_face"],
         "default_target": "whole_image",
-    },
-    "fit_3dmm": {
-        "description": "Fits a 3D Morphable Model (mock implementation).",
-        "allowed_targets": ["prominent_face"],
-        "default_target": "prominent_face",
     },
 }
 
@@ -193,26 +187,6 @@ async def analyze_image(request: ImageAnalysisRequest):
                 current_result_data = embedding_list
                 current_cropped_image_base64 = b64_img
                 current_cropped_image_bbox = bbox_used
-
-            elif op_type == "fit_3dmm":
-                if target == "prominent_face":
-                    if not face_detection_done: # Ensure face detection has run if needed
-                        if not person_detection_done and face_context == "prominent_person":
-                           shared_context["prominent_person_bbox"] = get_prominent_person_bbox(shared_context["pil_image_rgb"])
-                           person_detection_done = True
-                        person_bbox_for_face = shared_context["prominent_person_bbox"] if face_context == "prominent_person" else None
-                        shared_context["prominent_face_bbox"] = get_prominent_face_bbox_in_region(shared_context["pil_image_rgb"], person_bbox_for_face)
-                        face_detection_done = True
-                    
-                    if shared_context["prominent_face_bbox"]:
-                         params, b64_img, bbox_used = fit_3dmm_on_face(shared_context["pil_image_rgb"], shared_context["prominent_face_bbox"])
-                         current_result_data = params
-                         current_cropped_image_base64 = b64_img
-                         current_cropped_image_bbox = bbox_used
-                         if params is None and app.core.model_loader.get_threedmm_model() is not None:
-                             raise ValueError("3DMM fitting failed for the prominent face despite model being configured (mocked).")
-                    else: # No face found
-                        raise ValueError("No prominent face found for 3DMM fitting.")
 
             analysis_results[op_id] = OperationResult(
                 status="success", 
