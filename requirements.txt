@@ -1,7 +1,7 @@
 facenet-pytorch
 fastapi
 openai-clip
-Pillow
+Pillow==11.2.1
 pydantic
 python-multipart
 requests
