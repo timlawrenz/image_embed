@@ -9,9 +9,9 @@ An advanced FastAPI service that performs various analyses on images from a URL.
 *   Converts the image to RGB format if necessary.
 *   Performs requested operations, which can include:
     *   **Human Detection:** Detects the most prominent person using Faster R-CNN.
-    *   **Face Detection (Placeholder):** Detects the most prominent face (currently mock implementation).
+    *   **Face Detection:** Detects the most prominent face using MTCNN.
     *   **CLIP Embedding:** Generates image embeddings using a specified CLIP model (default: "ViT-B/32") on the whole image, a detected person, or a detected face.
-    *   **3DMM Fitting (Placeholder):** Fits a 3D Morphable Model to a detected face (currently mock implementation).
+    *   **3DMM Fitting (Placeholder):** Fits a 3D Morphable Model to a detected face (currently a mock implementation).
 *   For operations involving cropping (e.g., embedding a detected face), the API returns:
     *   The primary result of the operation (e.g., embedding vector, 3DMM parameters).
     *   The bounding box coordinates used for the crop.
@@ -222,7 +222,7 @@ Fits a 3D Morphable Model (currently a mock implementation).
 *   **`data` in result**: A dictionary containing mock 3DMM parameters. `null` if fitting fails or target not found.
 *   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if a face was found and cropped for 3DMM fitting.
 
-**Note on Placeholders:** Face detection and 3DMM fitting are currently mock implementations. They will return predefined results or indicate that the respective models are not loaded.
+**Note on Placeholders:** The 3DMM fitting is currently a mock implementation. It will return predefined results or indicate that the model is not loaded.
 
 ## CLIP Model and Device Management
 
