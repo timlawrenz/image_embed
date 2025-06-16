@@ -12,7 +12,7 @@ An advanced FastAPI service that performs various analyses on images from a URL.
     *   **Face Detection:** Detects the most prominent face using MTCNN.
     *   **CLIP Embedding:** Generates image embeddings using a specified CLIP model (default: "ViT-B/32") on the whole image, a detected person, or a detected face.
 *   For operations involving cropping (e.g., embedding a detected face), the API returns:
-     *   The primary result of the operation (e.g., embedding vector).
+    *   The primary result of the operation (e.g., embedding vector).
     *   The bounding box coordinates used for the crop.
     *   A base64 encoded PNG string of the actual cropped image.
 *   Returns the original image URL and a dictionary of results, keyed by a user-provided `operation_id` for each task.
