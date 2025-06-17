@@ -133,7 +133,7 @@ Provides a list of available analysis operations that can be used in the `tasks`
       "default_target": "whole_image"
     },
     "classify": {
-      "description": "Classifies an image region using a pre-trained model for a specific collection.",
+      "description": "Determines if an image region belongs to a specific collection using a binary classifier.",
       "allowed_targets": [
         "whole_image",
         "prominent_person",
@@ -215,12 +215,12 @@ Generates an embedding using the CLIP ViT-B/32 model.
 *   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if `target` was `"prominent_person"` (and a person was found and cropped) or `"prominent_face"` (and a face was found and cropped).
 
 ### `classify`
-Classifies an image region using a pre-trained model for a specific collection. The embedding logic used to get the vector for classification is identical to `embed_clip_vit_b_32`.
+Determines if an image region belongs to a specific collection using a pre-trained binary classifier. For each `collection_id`, a unique model is trained to predict whether an item is part of that collection (`true`) or not (`false`). The embedding logic used to get the vector for classification is identical to `embed_clip_vit_b_32`.
 *   **`params`**:
-    *   `collection_id` (integer, required): The ID of the classifier collection to use. This corresponds to the models trained by `scripts/train_classifiers.py`.
+    *   `collection_id` (integer, required): The ID of the collection to check against. This corresponds to the models trained by `scripts/train_classifiers.py`.
     *   `target` (string, optional, default: `"whole_image"`): Same as in `embed_clip_vit_b_32`.
     *   `face_context` (string, optional, default: `"prominent_person"`): Same as in `embed_clip_vit_b_32`, used when `target` is `"prominent_face"`.
-*   **`data` in result**: A dictionary containing the `predicted_label` and a dictionary of all `class_probabilities`. The `collection_id` parameter selects a specific classifier, and this classifier then predicts a label from the set of classes it was trained on (e.g., "cat", "dog"). Example: `{"predicted_label": "cat", "class_probabilities": {"cat": 0.9, "dog": 0.1}}`. A task will be skipped with an error if no classifier model for the requested `collection_id` is found on the server.
+*   **`data` in result**: A dictionary containing a boolean `is_in_collection` and the `probability` (float from 0.0 to 1.0) of that being true. Example: `{"is_in_collection": true, "probability": 0.95}`. A task will be skipped with an error if no classifier model for the requested `collection_id` is found on the server.
 *   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if the `target` for classification was not `"whole_image"`, following the same logic as `embed_clip_vit_b_32`.
 
 ## CLIP Model and Device Management
