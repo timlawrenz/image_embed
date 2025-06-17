@@ -3,6 +3,10 @@ import torch
 import clip
 import torchvision
 from facenet_pytorch import MTCNN
+import os
+import glob
+import re
+import joblib
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +95,60 @@ def get_face_detection_model():
             _loaded_models[cache_key] = None
     
     return _loaded_models[cache_key]
+
+
+def get_classifier_model(collection_id: int):
+    """
+    Loads the latest classifier for a given collection_id from the 'trained_classifiers/' dir.
+    Looks for files named 'collection_{collection_id}_classifier_YYYY-MM-DD.pkl'.
+    Caches the model for subsequent calls.
+    """
+    cache_key = f"classifier_{collection_id}"
+    if cache_key not in _loaded_models:
+        logger.info(f"ModelLoader: Searching for classifier model for collection ID {collection_id}...")
+        
+        classifier_dir = "trained_classifiers"
+        if not os.path.isdir(classifier_dir):
+            raise FileNotFoundError(f"Classifier directory not found: '{classifier_dir}'")
+            
+        file_pattern = os.path.join(classifier_dir, f"collection_{collection_id}_classifier_*.pkl")
+        model_files = glob.glob(file_pattern)
+
+        if not model_files:
+            raise FileNotFoundError(f"No classifier model found for collection ID {collection_id}")
+
+        # Find the file with the most recent date in the filename YYYY-MM-DD
+        latest_file = None
+        latest_date_str = ""
+        date_pattern = re.compile(r"_(\d{4}-\d{2}-\d{2})\.pkl$")
+
+        for f in model_files:
+            match = date_pattern.search(f)
+            if match:
+                date_str = match.group(1)
+                if date_str > latest_date_str:
+                    latest_date_str = date_str
+                    latest_file = f
+        
+        if not latest_file:
+            logger.warning(f"No classifier file for collection {collection_id} matched naming pattern. Falling back to most recently modified file.")
+            latest_file = max(model_files, key=os.path.getmtime)
+
+        logger.info(f"ModelLoader: Loading classifier '{os.path.basename(latest_file)}'...")
+        try:
+            with open(latest_file, "rb") as f:
+                model = joblib.load(f)
+            _loaded_models[cache_key] = model
+            logger.info(f"ModelLoader: Classifier for collection {collection_id} loaded and cached successfully.")
+        except Exception as e:
+            logger.exception(f"ModelLoader: Failed to load classifier model from '{latest_file}'.")
+            raise RuntimeError(f"Could not load classifier model from '{latest_file}': {e}") from e
+
+    else:
+        logger.debug(f"ModelLoader: Using cached classifier model for collection ID {collection_id}.")
+    
+    return _loaded_models[cache_key]
+
 
 def preload_all_models(clip_model_name: str):
     """

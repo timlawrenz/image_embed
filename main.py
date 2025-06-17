@@ -20,6 +20,7 @@ from app.core import model_loader
 from app.services.image_utils import download_image
 from app.services.detection_service import get_prominent_person_bbox, get_prominent_face_bbox_in_region
 from app.services.embedding_service import get_clip_embedding
+from app.services.classification_service import classify_embedding
 
 
 # --- Configuration & Initialization ---
@@ -67,6 +68,11 @@ AVAILABLE_OPERATIONS = {
         "allowed_targets": ["whole_image", "prominent_person", "prominent_face"],
         "default_target": "whole_image",
     },
+    "classify": {
+        "description": "Classifies an image region using a pre-trained model for a specific collection.",
+        "allowed_targets": ["whole_image", "prominent_person", "prominent_face"],
+        "default_target": "whole_image",
+    }
 }
 
 # --- API Endpoints ---
@@ -94,43 +100,76 @@ async def analyze_image(request: ImageAnalysisRequest):
         return ImageAnalysisResponse(image_url=image_url_str, results=results)
 
     analysis_results: Dict[str, OperationResult] = {}
-    shared_context: Dict[str, Any] = {
-        "pil_image_rgb": pil_image_rgb,
-        "prominent_person_bbox": None,
-        "prominent_face_bbox": None,
-    }
+    shared_context: Dict[str, Any] = {"pil_image_rgb": pil_image_rgb}
     person_detection_done = False
     face_detection_done = False
 
+    # --- Helper function to get embeddings on demand, with caching ---
+    def get_embedding_for_target(
+        target: str, face_context: str, op_id: str
+    ) -> Tuple[Optional[List[float]], Optional[str], Optional[List[int]]]:
+        nonlocal person_detection_done, face_detection_done
+
+        embedding_cache_key = f"embedding_{target}"
+        if "face" in target:
+            embedding_cache_key += f"_{face_context}"
+        
+        if embedding_cache_key in shared_context:
+            logger.info(f"Task {op_id}: Using cached embedding from '{embedding_cache_key}'.")
+            return shared_context[embedding_cache_key]
+
+        logger.info(f"Task {op_id}: No cached embedding for '{embedding_cache_key}', computing now...")
+        crop_box = None
+        if target == "whole_image":
+            pass
+        elif target == "prominent_person":
+            if not person_detection_done:
+                shared_context["prominent_person_bbox"] = get_prominent_person_bbox(pil_image_rgb)
+                person_detection_done = True
+            if shared_context.get("prominent_person_bbox"):
+                crop_box = shared_context["prominent_person_bbox"]
+            else:
+                logger.warning(f"Task {op_id}: prominent_person target, but no person found. Using whole image.")
+        elif target == "prominent_face":
+            if not face_detection_done:
+                 if not person_detection_done and face_context == "prominent_person":
+                    shared_context["prominent_person_bbox"] = get_prominent_person_bbox(pil_image_rgb)
+                    person_detection_done = True
+                 person_bbox_for_face = shared_context.get("prominent_person_bbox") if face_context == "prominent_person" else None
+                 shared_context["prominent_face_bbox"] = get_prominent_face_bbox_in_region(pil_image_rgb, person_bbox_for_face)
+                 face_detection_done = True
+            if shared_context.get("prominent_face_bbox"):
+                crop_box = shared_context["prominent_face_bbox"]
+            else:
+                raise ValueError(f"No prominent face found for operation '{op_id}'.")
+        
+        embedding_list, b64_img, bbox_used = get_clip_embedding(pil_image_rgb, MODEL_NAME_CLIP, crop_box)
+        shared_context[embedding_cache_key] = (embedding_list, b64_img, bbox_used)
+        return embedding_list, b64_img, bbox_used
+
+    # --- Process Tasks ---
     for task_def in request.tasks:
         op_id = task_def.operation_id
         op_type = task_def.type
         op_params = task_def.params if task_def.params is not None else {}
-        
-        # Define target here, it may be None initially.
-        # This ensures it's available in the final exception handler's log message.
         target = op_params.get("target")
 
         try:
-            # --- Centralized Validation and Defaulting ---
             op_info = AVAILABLE_OPERATIONS.get(op_type)
             if not op_info:
                 raise ValueError(f"Unsupported operation type: '{op_type}'")
 
-            # If target was not specified in params, get the default.
             if target is None:
                 target = op_info["default_target"]
-                logger.info(f"Task {op_id}: 'target' not specified for '{op_type}', defaulting to '{target}'.")
+                logger.info(f"Task {op_id}: 'target' not specified, defaulting to '{target}'.")
             
-            # Validate the final target against the allowed list for the operation.
             if target not in op_info["allowed_targets"]:
-                raise ValueError(f"Unsupported target '{target}' for operation '{op_type}'. Allowed targets are: {op_info['allowed_targets']}")
+                raise ValueError(f"Unsupported target '{target}' for '{op_type}'. Allowed: {op_info['allowed_targets']}")
 
             face_context = op_params.get("face_context", "prominent_person")
-            # --- End Validation ---
-
+            
             log_message = f"Processing task: id='{op_id}', type='{op_type}', target='{target}'"
-            if "face" in target:
+            if "face" in target or op_type == "classify":
                  log_message += f", face_context='{face_context}'"
             logger.info(log_message)
 
@@ -141,52 +180,40 @@ async def analyze_image(request: ImageAnalysisRequest):
             if op_type == "detect_bounding_box":
                 if target == "prominent_person":
                     if not person_detection_done:
-                        shared_context["prominent_person_bbox"] = get_prominent_person_bbox(shared_context["pil_image_rgb"])
+                        shared_context["prominent_person_bbox"] = get_prominent_person_bbox(pil_image_rgb)
                         person_detection_done = True
-                    current_result_data = shared_context["prominent_person_bbox"]
+                    current_result_data = shared_context.get("prominent_person_bbox")
                 elif target == "prominent_face":
                     if not person_detection_done and face_context == "prominent_person":
-                        shared_context["prominent_person_bbox"] = get_prominent_person_bbox(shared_context["pil_image_rgb"])
+                        shared_context["prominent_person_bbox"] = get_prominent_person_bbox(pil_image_rgb)
                         person_detection_done = True
                     if not face_detection_done:
-                        person_bbox_for_face = shared_context["prominent_person_bbox"] if face_context == "prominent_person" else None
-                        shared_context["prominent_face_bbox"] = get_prominent_face_bbox_in_region(shared_context["pil_image_rgb"], person_bbox_for_face)
+                        person_bbox = shared_context.get("prominent_person_bbox") if face_context == "prominent_person" else None
+                        shared_context["prominent_face_bbox"] = get_prominent_face_bbox_in_region(pil_image_rgb, person_bbox)
                         face_detection_done = True
-                    current_result_data = shared_context["prominent_face_bbox"]
+                    current_result_data = shared_context.get("prominent_face_bbox")
             
             elif op_type == "embed_clip_vit_b_32":
-                crop_for_embedding = None
-                if target == "whole_image":
-                    pass # No crop needed
-                elif target == "prominent_person":
-                    if not person_detection_done:
-                        shared_context["prominent_person_bbox"] = get_prominent_person_bbox(shared_context["pil_image_rgb"])
-                        person_detection_done = True
-                    if shared_context["prominent_person_bbox"]:
-                        crop_for_embedding = shared_context["prominent_person_bbox"]
-                    else: # No person found, embed whole image as fallback
-                        logger.warning(f"Task {op_id}: prominent_person target for embedding, but no person found. Embedding whole image as fallback.")
-                elif target == "prominent_face":
-                    if not face_detection_done: # Ensure face detection has run if needed
-                         if not person_detection_done and face_context == "prominent_person":
-                            shared_context["prominent_person_bbox"] = get_prominent_person_bbox(shared_context["pil_image_rgb"])
-                            person_detection_done = True
-                         person_bbox_for_face = shared_context["prominent_person_bbox"] if face_context == "prominent_person" else None
-                         shared_context["prominent_face_bbox"] = get_prominent_face_bbox_in_region(shared_context["pil_image_rgb"], person_bbox_for_face)
-                         face_detection_done = True
-                    if shared_context["prominent_face_bbox"]:
-                        crop_for_embedding = shared_context["prominent_face_bbox"]
-                    else: # No face found
-                        raise ValueError("No prominent face found for embedding.")
-                
-                embedding_list, b64_img, bbox_used = get_clip_embedding(
-                    shared_context["pil_image_rgb"], 
-                    clip_model_name=MODEL_NAME_CLIP,
-                    crop_bbox=crop_for_embedding
-                )
+                embedding_list, b64_img, bbox_used = get_embedding_for_target(target, face_context, op_id)
                 current_result_data = embedding_list
                 current_cropped_image_base64 = b64_img
                 current_cropped_image_bbox = bbox_used
+            
+            elif op_type == "classify":
+                collection_id = op_params.get("collection_id")
+                if collection_id is None:
+                    raise ValueError("'collection_id' param is required for 'classify' operation.")
+                
+                embedding, b64_img, bbox_used = get_embedding_for_target(target, face_context, op_id)
+                if embedding is None:
+                    raise ValueError("Could not generate embedding, classification cannot proceed.")
+                
+                try:
+                    current_result_data = classify_embedding(embedding, int(collection_id))
+                    current_cropped_image_base64 = b64_img
+                    current_cropped_image_bbox = bbox_used
+                except FileNotFoundError as e:
+                    raise ValueError(f"Classifier not found for collection_id {collection_id}.") from e
 
             analysis_results[op_id] = OperationResult(
                 status="success", 
@@ -196,12 +223,12 @@ async def analyze_image(request: ImageAnalysisRequest):
             )
             logger.info(f"Successfully processed task: id='{op_id}'")
 
-        except ValueError as ve: # For expected issues like "unsupported target", "no face found"
+        except ValueError as ve:
             logger.warning(f"Skipping task {op_id} due to ValueError: {ve}")
             analysis_results[op_id] = OperationResult(status="skipped", error_message=str(ve))
-        except HTTPException: # Re-raise HTTPExceptions (e.g. from download_image)
+        except HTTPException:
             raise
-        except Exception as e: # For unexpected internal errors
+        except Exception as e:
             logger.exception(f"Failed to process task {op_id} ('{op_type}' on target '{target}'): {e}")
             analysis_results[op_id] = OperationResult(status="error", error_message=f"Internal error processing task: {e}")
 

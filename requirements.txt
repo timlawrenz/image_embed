@@ -3,6 +3,7 @@ fastapi
 openai-clip
 Pillow==11.2.1
 pydantic
+numpy
 python-multipart
 requests
 scikit-learn
