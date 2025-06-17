@@ -17,7 +17,7 @@ def classify_embedding(embedding: List[float], collection_id: int) -> Dict[str, 
 
     Returns:
         A dictionary containing the predicted label and a dictionary of class probabilities.
-        Example: {'label': 'cat', 'probabilities': {'cat': 0.9, 'dog': 0.1}}
+        Example: {'predicted_label': 'cat', 'class_probabilities': {'cat': 0.9, 'dog': 0.1}}
     
     Raises:
         FileNotFoundError: If no classifier model is found for the collection_id.
@@ -37,8 +37,8 @@ def classify_embedding(embedding: List[float], collection_id: int) -> Dict[str, 
         class_probabilities = {str(model.classes_[i]): prob for i, prob in enumerate(probabilities)}
         
         result = {
-            "label": str(label),
-            "probabilities": class_probabilities
+            "predicted_label": str(label),
+            "class_probabilities": class_probabilities
         }
         logger.info(f"Classification successful for collection_id {collection_id}. Label: '{label}'.")
         return result

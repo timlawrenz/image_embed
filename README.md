@@ -220,7 +220,7 @@ Classifies an image region using a pre-trained model for a specific collection. 
     *   `collection_id` (integer, required): The ID of the classifier collection to use. This corresponds to the models trained by `scripts/train_classifiers.py`.
     *   `target` (string, optional, default: `"whole_image"`): Same as in `embed_clip_vit_b_32`.
     *   `face_context` (string, optional, default: `"prominent_person"`): Same as in `embed_clip_vit_b_32`, used when `target` is `"prominent_face"`.
-*   **`data` in result**: A dictionary containing the predicted `label` and a dictionary of class `probabilities`. Example: `{"label": "cat", "probabilities": {"cat": 0.9, "dog": 0.1}}`. A task will be skipped with an error if no classifier model for the requested `collection_id` is found on the server.
+*   **`data` in result**: A dictionary containing the `predicted_label` and a dictionary of all `class_probabilities`. The `collection_id` parameter selects a specific classifier, and this classifier then predicts a label from the set of classes it was trained on (e.g., "cat", "dog"). Example: `{"predicted_label": "cat", "class_probabilities": {"cat": 0.9, "dog": 0.1}}`. A task will be skipped with an error if no classifier model for the requested `collection_id` is found on the server.
 *   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if the `target` for classification was not `"whole_image"`, following the same logic as `embed_clip_vit_b_32`.
 
 ## CLIP Model and Device Management
