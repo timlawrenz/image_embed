@@ -5,6 +5,7 @@ Pillow==11.2.1
 pydantic
 python-multipart
 requests
+scikit-learn
 torch
 torchaudio
 torchvision
