@@ -30,6 +30,10 @@ jobs:
       - python/install-packages:
           pkg-manager: pip
           # app-dir: ~/project/package-directory/  # If your requirements.txt isn't in the root directory.
+          pip-dependency-file: requirements.txt
+      - python/install-packages:
+          pkg-manager: pip
+          # app-dir: ~/project/package-directory/  # If your requirements.txt isn't in the root directory.
           pip-dependency-file: requirements-dev.txt
       - run:
           name: Run tests
