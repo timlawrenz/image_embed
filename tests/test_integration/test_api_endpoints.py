@@ -6,13 +6,15 @@ def test_analyze_image_classification_on_face(client, mocker):
     Verifies that intermediate results are shared between tasks.
     """
     # 1. Arrange: Mock all external dependencies and service calls
-    mocker.patch("app.services.image_utils.download_image", return_value=Image.new('RGB', (800, 600)))
+    # We patch the functions in the namespace where they are *used* (main.py),
+    # not where they are defined. This is a common requirement when using mock.
+    mocker.patch("main.download_image", return_value=Image.new('RGB', (800, 600)))
 
     # Mock the service layer functions that the endpoint calls
-    mock_get_person = mocker.patch("app.services.detection_service.get_prominent_person_bbox", return_value=[100, 50, 300, 250])
-    mock_get_face = mocker.patch("app.services.detection_service.get_prominent_face_bbox_in_region", return_value=[110, 70, 160, 130])
-    mock_get_embedding = mocker.patch("app.services.embedding_service.get_clip_embedding", return_value=([0.1]*512, "base64_string", [110, 70, 160, 130]))
-    mock_classify = mocker.patch("app.services.classification_service.classify_embedding", return_value={"is_in_collection": True, "probability": 0.98})
+    mock_get_person = mocker.patch("main.get_prominent_person_bbox", return_value=[100, 50, 300, 250])
+    mock_get_face = mocker.patch("main.get_prominent_face_bbox_in_region", return_value=[110, 70, 160, 130])
+    mock_get_embedding = mocker.patch("main.get_clip_embedding", return_value=([0.1]*512, "base64_string", [110, 70, 160, 130]))
+    mock_classify = mocker.patch("main.classify_embedding", return_value={"is_in_collection": True, "probability": 0.98})
 
     # 2. Arrange: Define a complex request with multiple dependent tasks
     request_data = {
