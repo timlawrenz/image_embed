@@ -2,7 +2,8 @@ from unittest.mock import MagicMock
 from PIL import Image
 import numpy as np
 import pytest
-from app.services.detection_service import get_prominent_face_bbox_in_region
+import torch
+from app.services.detection_service import get_prominent_person_bbox, get_prominent_face_bbox_in_region
 
 def test_get_face_bbox_in_region_with_offset(mocker):
     """
