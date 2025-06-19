@@ -1,5 +1,7 @@
 # Advanced Image Analysis API
 
+[ ![CircleCI](https://dl.circleci.com/status-badge/img/gh/timlawrenz/image_embed/tree/main.svg?style=svg) ](https://dl.circleci.com/status-badge/redirect/gh/timlawrenz/image_embed/tree/main)
+
 An advanced FastAPI service that performs various analyses on images from a URL. You provide an image URL and a list of analysis tasks, and the API returns the results for each task.
 
 ## Features
