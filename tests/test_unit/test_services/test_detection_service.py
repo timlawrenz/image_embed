@@ -17,34 +17,6 @@ def test_get_face_bbox_in_region_with_offset(mocker):
 
     # Mock the MTCNN model
     mock_face_model = MagicMock()
-    #
-
-Of course. I will now create the testing files and structure we discussed.
-
-First, I'll create a new file for development-specific dependencies.
-
-```
-requirements-dev.txt
-<<<<<<< SEARCH
-import pytest
-from unittest.mock import MagicMock
-from PIL import Image
-import numpy as np
-from app.services.detection_service import get_prominent_face_bbox_in_region
-
-def test_get_face_bbox_in_region_with_offset(mocker):
-    """
-    Tests that face detection correctly applies the person_bbox offset
-    to the coordinates of the detected face.
-    """
-    # 1. Arrange
-    # A mock PIL image (contents don't matter, just size)
-    mock_pil_image = Image.new('RGB', (800, 600))
-    # A bounding box for the person region we are searching within
-    person_bbox = [100, 50, 300, 250] # xmin, ymin, xmax, ymax
-
-    # Mock the MTCNN model
-    mock_face_model = MagicMock()
     # The model's detect method should return coordinates relative to the *cropped* image
     # and a probability for each face.
     detected_boxes = np.array([[10, 20, 60, 80]]) # A face found at (10, 20) in the crop
