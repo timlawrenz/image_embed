@@ -5,7 +5,7 @@ import json
 import logging
 import re
 import glob
-from datetime import datetime
+from datetime import datetime, timezone
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
@@ -113,8 +113,8 @@ def train_and_save_model(collection_id: int, collection_name: str, training_data
     model = LogisticRegression(class_weight="balanced", C=0.1, solver='liblinear', random_state=42)
     model.fit(X_train, y_train)
 
-    # Save the newly trained model with the current UTC date.
-    date_str = datetime.utcnow().strftime('%Y-%m-%d')
+    # Save the newly trained model with the current UTC date and time.
+    date_str = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H%M%S')
     model_filename = f"collection_{collection_id}_classifier_{date_str}.pkl"
     model_filepath = os.path.join(CLASSIFIER_DIR, model_filename)
 

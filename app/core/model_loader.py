@@ -158,9 +158,9 @@ def get_classifier_model(collection_id: int):
             if not model_files:
                 raise FileNotFoundError(f"No classifier model found for collection ID {collection_id}")
 
-            # Find the file with the most recent date in the filename YYYY-MM-DD
+            # Find the file with the most recent date in the filename (YYYY-MM-DD or YYYY-MM-DD_HHMMSS).
             latest_date_str = ""
-            date_pattern = re.compile(r"_(\d{4}-\d{2}-\d{2})\.pkl$")
+            date_pattern = re.compile(r"_(\d{4}-\d{2}-\d{2}(?:_\d{6})?)\.pkl$")
 
             for f in model_files:
                 match = date_pattern.search(f)
