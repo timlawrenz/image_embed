@@ -162,6 +162,7 @@ def train_and_save_model(collection_id: int, collection_name: str, training_data
 
     best_model = results[0]
     logging.info(f"--- Best model is '{best_model['model_file']}' with a precision of {best_model['macro_precision']:.4f} ---")
+    return best_model['model_file']
 
 def main():
     """Main function to run the training pipeline."""
@@ -176,6 +177,7 @@ def main():
         logging.error("Could not retrieve collections. Exiting.")
         return
 
+    best_models_map = {}
     for collection in collections:
         collection_id = collection.get('id')
         collection_name = collection.get('name')
@@ -186,9 +188,21 @@ def main():
 
         training_data = fetch_training_data(collection_id)
         if training_data:
-            train_and_save_model(collection_id, collection_name, training_data)
+            best_model_file = train_and_save_model(collection_id, collection_name, training_data)
+            if best_model_file:
+                best_models_map[str(collection_id)] = best_model_file
         else:
             logging.warning(f"Could not retrieve or process training data for '{collection_name}' (ID: {collection_id}).")
+
+    if best_models_map:
+        config_path = os.path.join(CLASSIFIER_DIR, 'best_models.json')
+        logging.info(f"Saving best models configuration to {config_path}")
+        try:
+            with open(config_path, 'w') as f:
+                json.dump(best_models_map, f, indent=4)
+            logging.info("Successfully saved best models configuration.")
+        except IOError as e:
+            logging.error(f"Could not write best models configuration file: {e}")
 
     logging.info("Classifier training process finished.")
 

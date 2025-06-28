@@ -7,11 +7,15 @@ import os
 import glob
 import re
 import joblib
+import json
 
 logger = logging.getLogger(__name__)
 
 # --- Global Cache for Models ---
 _loaded_models = {}
+
+# --- Global for Best Models Config ---
+_best_models_map = None
 
 # --- Device Configuration ---
 try:
@@ -20,6 +24,27 @@ try:
 except Exception as e:
     logger.error(f"ModelLoader: Error determining Torch device, defaulting to CPU. Error: {e}")
     DEVICE = "cpu"
+
+
+def _load_best_models_map():
+    """Loads the best models map from the JSON configuration file."""
+    global _best_models_map
+    if _best_models_map is not None:  # Only load once
+        return
+
+    config_path = os.path.join("trained_classifiers", "best_models.json")
+    _best_models_map = {}  # Default to empty map
+
+    if not os.path.exists(config_path):
+        logger.info(f"ModelLoader: '{config_path}' not found. Will use date-based model selection.")
+        return
+
+    try:
+        with open(config_path, 'r') as f:
+            _best_models_map = json.load(f)
+        logger.info(f"ModelLoader: Successfully loaded best models configuration from '{config_path}'")
+    except (IOError, json.JSONDecodeError) as e:
+        logger.warning(f"ModelLoader: Could not read or parse '{config_path}': {e}. Will fall back to date-based model selection.")
 
 
 def get_device() -> str:
@@ -99,40 +124,58 @@ def get_face_detection_model():
 
 def get_classifier_model(collection_id: int):
     """
-    Loads the latest classifier for a given collection_id from the 'trained_classifiers/' dir.
-    Looks for files named 'collection_{collection_id}_classifier_YYYY-MM-DD.pkl'.
+    Loads the classifier for a given collection_id. It first attempts to use the
+    model specified in 'trained_classifiers/best_models.json'. If not specified
+    or if the file is not found, it falls back to loading the latest dated model.
     Caches the model for subsequent calls.
     """
     cache_key = f"classifier_{collection_id}"
     if cache_key not in _loaded_models:
-        logger.info(f"ModelLoader: Searching for classifier model for collection ID {collection_id}...")
-        
+        _load_best_models_map()  # Ensure the map is loaded
+
         classifier_dir = "trained_classifiers"
         if not os.path.isdir(classifier_dir):
             raise FileNotFoundError(f"Classifier directory not found: '{classifier_dir}'")
-            
-        file_pattern = os.path.join(classifier_dir, f"collection_{collection_id}_classifier_*.pkl")
-        model_files = glob.glob(file_pattern)
 
-        if not model_files:
-            raise FileNotFoundError(f"No classifier model found for collection ID {collection_id}")
-
-        # Find the file with the most recent date in the filename YYYY-MM-DD
         latest_file = None
-        latest_date_str = ""
-        date_pattern = re.compile(r"_(\d{4}-\d{2}-\d{2})\.pkl$")
-
-        for f in model_files:
-            match = date_pattern.search(f)
-            if match:
-                date_str = match.group(1)
-                if date_str > latest_date_str:
-                    latest_date_str = date_str
-                    latest_file = f
         
+        # 1. Try to get model from the best_models config
+        best_model_filename = _best_models_map.get(str(collection_id))
+        if best_model_filename:
+            candidate_path = os.path.join(classifier_dir, best_model_filename)
+            if os.path.exists(candidate_path):
+                latest_file = candidate_path
+                logger.info(f"ModelLoader: Using best model '{os.path.basename(latest_file)}' for collection {collection_id} from config.")
+            else:
+                logger.warning(f"ModelLoader: Best model '{best_model_filename}' for collection {collection_id} not found in filesystem. Falling back to date-based search.")
+
+        # 2. If not found via config, fall back to searching for the latest dated file
         if not latest_file:
-            logger.warning(f"No classifier file for collection {collection_id} matched naming pattern. Falling back to most recently modified file.")
-            latest_file = max(model_files, key=os.path.getmtime)
+            logger.info(f"ModelLoader: No configured best model for collection {collection_id}. Searching by date...")
+            file_pattern = os.path.join(classifier_dir, f"collection_{collection_id}_classifier_*.pkl")
+            model_files = glob.glob(file_pattern)
+
+            if not model_files:
+                raise FileNotFoundError(f"No classifier model found for collection ID {collection_id}")
+
+            # Find the file with the most recent date in the filename YYYY-MM-DD
+            latest_date_str = ""
+            date_pattern = re.compile(r"_(\d{4}-\d{2}-\d{2})\.pkl$")
+
+            for f in model_files:
+                match = date_pattern.search(f)
+                if match:
+                    date_str = match.group(1)
+                    if date_str > latest_date_str:
+                        latest_date_str = date_str
+                        latest_file = f
+            
+            if not latest_file:
+                logger.warning(f"No classifier file for collection {collection_id} matched naming pattern. Falling back to most recently modified file.")
+                latest_file = max(model_files, key=os.path.getmtime)
+
+        if not latest_file:
+             raise FileNotFoundError(f"Could not determine a classifier to load for collection ID {collection_id}")
 
         logger.info(f"ModelLoader: Loading classifier '{os.path.basename(latest_file)}'...")
         try:
