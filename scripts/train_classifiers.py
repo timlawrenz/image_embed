@@ -4,6 +4,7 @@ import joblib
 import json
 import logging
 import re
+import glob
 from datetime import datetime
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
@@ -32,6 +33,15 @@ def clean_json_response(text: str) -> str:
     logging.warning("Could not find JSON in response text.")
     # Return original text; json.loads() will then fail and log the problematic text.
     return text
+
+def find_existing_models(collection_id: int):
+    """Finds all classifier files for a given collection ID."""
+    model_pattern = os.path.join(CLASSIFIER_DIR, f"collection_{collection_id}_classifier_*.pkl")
+    logging.info(f"Searching for existing models with pattern: {model_pattern}")
+    found_models = glob.glob(model_pattern)
+    logging.info(f"Found {len(found_models)} existing models for collection {collection_id}.")
+    return found_models
+
 
 def fetch_collections():
     """Fetches the list of available collections."""
@@ -70,7 +80,10 @@ def fetch_training_data(collection_id: int):
         return None
 
 def train_and_save_model(collection_id: int, collection_name: str, training_data: list):
-    """Trains a classifier, evaluates it, and saves it to a file."""
+    """
+    Trains a new classifier, saves it, and then evaluates all available versions
+    for the collection (including the new one) to identify the best-performing one.
+    """
     if not training_data:
         logging.warning(f"No training data for collection {collection_name} (ID: {collection_id}). Skipping.")
         return
@@ -89,32 +102,66 @@ def train_and_save_model(collection_id: int, collection_name: str, training_data
         logging.warning(f"Collection {collection_id} has only one class ({set(y)}). Cannot train a model. Skipping.")
         return
 
-    # Split data for evaluation. Stratify is important for imbalanced data.
+    # Split data into a training set and a held-out test set for the bake-off.
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, stratify=y, random_state=42
     )
 
-    logging.info(f"Training model for '{collection_name}'. Train set size: {len(X_train)}, Test set size: {len(X_test)}")
+    logging.info(f"Training new model for '{collection_name}'. Train set size: {len(X_train)}, Test set size: {len(X_test)}")
 
     # 'class_weight="balanced"' is key for imbalanced collections.
     model = LogisticRegression(class_weight="balanced", C=0.1, solver='liblinear', random_state=42)
     model.fit(X_train, y_train)
 
-    # Evaluate the model before saving.
-    y_pred = model.predict(X_test)
-    logging.info(f"--- Evaluation Report for Collection '{collection_name}' (ID: {collection_id}) ---")
-    # Use print() for the report as it's more readable than logging it line-by-line.
-    print(classification_report(y_test, y_pred, zero_division=0))
-    logging.info("--- End of Report ---")
-
-    # Save the trained model with the current UTC date.
+    # Save the newly trained model with the current UTC date.
     date_str = datetime.utcnow().strftime('%Y-%m-%d')
     model_filename = f"collection_{collection_id}_classifier_{date_str}.pkl"
     model_filepath = os.path.join(CLASSIFIER_DIR, model_filename)
 
-    logging.info(f"Saving model to {model_filepath}")
+    logging.info(f"Saving new model to {model_filepath}")
     joblib.dump(model, model_filepath)
-    logging.info(f"Successfully saved model for '{collection_name}'.")
+    logging.info(f"Successfully saved new model for '{collection_name}'.")
+
+    # --- Classifier Bake-off ---
+    logging.info(f"--- Starting Bake-off for Collection '{collection_name}' ---")
+    logging.info("Evaluating all model versions on the latest test data.")
+
+    model_files = find_existing_models(collection_id)
+    if not model_files:
+        logging.error("Could not find any models for bake-off, not even the one just saved. Check permissions or path.")
+        return
+
+    results = []
+    for mf_path in model_files:
+        try:
+            loaded_model = joblib.load(mf_path)
+            y_pred = loaded_model.predict(X_test)
+            report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
+
+            # Using macro average precision as the key metric.
+            precision = report.get('macro avg', {}).get('precision', 0)
+
+            results.append({
+                'model_file': os.path.basename(mf_path),
+                'macro_precision': precision
+            })
+        except Exception as e:
+            logging.warning(f"Could not evaluate model {os.path.basename(mf_path)}: {e}")
+            continue
+
+    if not results:
+        logging.error("Bake-off failed: no models could be evaluated.")
+        return
+
+    # Sort results by precision, descending.
+    results.sort(key=lambda x: x['macro_precision'], reverse=True)
+
+    logging.info(f"--- Bake-off Report for '{collection_name}' (ID: {collection_id}) ---")
+    for res in results:
+        logging.info(f"  - Model: {res['model_file']:<50} Macro Avg Precision: {res['macro_precision']:.4f}")
+
+    best_model = results[0]
+    logging.info(f"--- Best model is '{best_model['model_file']}' with a precision of {best_model['macro_precision']:.4f} ---")
 
 def main():
     """Main function to run the training pipeline."""
