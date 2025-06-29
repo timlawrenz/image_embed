@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import glob
+import pickle
 from datetime import datetime, timezone
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
@@ -173,7 +174,8 @@ def train_and_save_model(collection_id: int, collection_name: str, training_data
         best_model_object = joblib.load(best_model_path)
         
         logging.info(f"Saving best model to '{compatible_filepath}' with pickle protocol 4.")
-        joblib.dump(best_model_object, compatible_filepath, protocol=4)
+        with open(compatible_filepath, 'wb') as f:
+            pickle.dump(best_model_object, f, protocol=4)
         logging.info("Successfully saved compatible model file.")
     except Exception as e:
         logging.error(f"Could not save compatible model file '{compatible_filename}': {e}")
