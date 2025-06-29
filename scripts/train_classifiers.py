@@ -135,8 +135,8 @@ def train_and_save_model(collection_id: int, collection_name: str, training_data
     for mf_path in model_files:
         try:
             loaded_model = joblib.load(mf_path)
-            y_pred = loaded_model.predict(X)
-            report = classification_report(y, y_pred, output_dict=True, zero_division=0)
+            y_pred = loaded_model.predict(X_test)
+            report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
 
             # Using macro average precision as the key metric.
             precision = report.get('macro avg', {}).get('precision', 0)
