@@ -160,9 +160,25 @@ def train_and_save_model(collection_id: int, collection_name: str, training_data
     for res in results:
         logging.info(f"  - Model: {res['model_file']:<50} Macro Avg Precision: {res['macro_precision']:.4f}")
 
-    best_model = results[0]
-    logging.info(f"--- Best model is '{best_model['model_file']}' with a precision of {best_model['macro_precision']:.4f} ---")
-    return best_model['model_file']
+    best_model_info = results[0]
+    best_model_filename = best_model_info['model_file']
+    logging.info(f"--- Best model is '{best_model_filename}' with a precision of {best_model_info['macro_precision']:.4f} ---")
+
+    # Save the best model to a consistently named file for compatibility.
+    compatible_filename = f"collection_{collection_id}_compatible_classifier.pkl"
+    compatible_filepath = os.path.join(CLASSIFIER_DIR, compatible_filename)
+    
+    try:
+        best_model_path = os.path.join(CLASSIFIER_DIR, best_model_filename)
+        best_model_object = joblib.load(best_model_path)
+        
+        logging.info(f"Saving best model to '{compatible_filepath}' with pickle protocol 4.")
+        joblib.dump(best_model_object, compatible_filepath, protocol=4)
+        logging.info("Successfully saved compatible model file.")
+    except Exception as e:
+        logging.error(f"Could not save compatible model file '{compatible_filename}': {e}")
+
+    return best_model_filename
 
 def main():
     """Main function to run the training pipeline."""
