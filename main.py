@@ -1,7 +1,11 @@
 import io
 import logging
+import warnings
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Tuple # Added Tuple
+
+# Suppress a specific UserWarning from the clip library regarding pkg_resources.
+warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API", category=UserWarning)
 
 import clip
 import requests
