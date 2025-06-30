@@ -19,6 +19,7 @@ BASE_URL = "https://crawlr.lawrenz.com"
 COLLECTIONS_ENDPOINT = f"{BASE_URL}/collections.json"
 TRAINING_DATA_ENDPOINT_TEMPLATE = f"{BASE_URL}/collections/{{collection_id}}/training_data.json"
 CLASSIFIER_DIR = "trained_classifiers"
+MAX_MODELS_PER_COLLECTION = 10
 
 # --- Helper Functions ---
 
@@ -160,6 +161,19 @@ def train_and_save_model(collection_id: int, collection_name: str, training_data
     logging.info(f"--- Bake-off Report for '{collection_name}' (ID: {collection_id}) ---")
     for res in results:
         logging.info(f"  - Model: {res['model_file']:<50} Macro Avg Precision: {res['macro_precision']:.4f}")
+
+    # --- Pruning old classifiers ---
+    if len(results) > MAX_MODELS_PER_COLLECTION:
+        logging.info(f"Pruning old, low-performing classifiers. Keeping top {MAX_MODELS_PER_COLLECTION}.")
+        models_to_prune = results[MAX_MODELS_PER_COLLECTION:]
+        for model_info in models_to_prune:
+            model_filename = model_info['model_file']
+            try:
+                model_path = os.path.join(CLASSIFIER_DIR, model_filename)
+                os.remove(model_path)
+                logging.info(f"  - Removed old model: {model_filename}")
+            except OSError as e:
+                logging.error(f"Error removing model file {model_filename}: {e}")
 
     best_model_info = results[0]
     best_model_filename = best_model_info['model_file']
