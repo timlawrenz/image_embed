@@ -12,7 +12,7 @@ import requests
 import torch
 import torchvision # Added for detection model
 import torchvision.transforms as T # Added for detection model
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from PIL import Image
 # Pydantic models moved to app.pydantic_models
 import base64 # Added
@@ -25,6 +25,10 @@ from app.services.image_utils import download_image
 from app.services.detection_service import get_prominent_person_bbox, get_prominent_face_bbox_in_region
 from app.services.embedding_service import get_clip_embedding
 from app.services.classification_service import classify_embedding
+
+import time
+import os
+import uuid
 
 
 # --- Configuration & Initialization ---
@@ -53,6 +57,24 @@ app = FastAPI(
     version="0.3.0",
     lifespan=lifespan,
 )
+
+@app.middleware("http")
+async def add_request_timing_and_pid_logging(request: Request, call_next):
+    """
+    Middleware to log request processing time and the worker process ID.
+    """
+    request_id = str(uuid.uuid4())
+    pid = os.getpid()
+    start_time = time.time()
+    
+    logger.info(f"req_id={request_id} pid={pid} event=request_started path={request.url.path}")
+
+    response = await call_next(request)
+    
+    process_time = time.time() - start_time
+    logger.info(f"req_id={request_id} pid={pid} event=request_finished path={request.url.path} duration={process_time:.4f}s")
+    
+    return response
 
 # --- Model Loading ---
 # Models are pre-loaded at startup via the lifespan manager.
