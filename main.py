@@ -114,9 +114,11 @@ async def get_available_operations():
 
 @app.post("/analyze_image/", response_model=ImageAnalysisResponse, tags=["Analysis"])
 async def analyze_image(request: ImageAnalysisRequest):
+    req_start_time = time.time()
     image_url_str = str(request.image_url)
     logger.info(f"Received analysis request for URL: {image_url_str} with {len(request.tasks)} tasks.")
 
+    download_start_time = time.time()
     try:
         pil_image_rgb = download_image(image_url_str)
     except HTTPException as e:
@@ -124,33 +126,35 @@ async def analyze_image(request: ImageAnalysisRequest):
         for task_def in request.tasks:
             results[task_def.operation_id] = OperationResult(status="error", error_message=f"Failed to download or process base image: {e.detail}")
         return ImageAnalysisResponse(image_url=image_url_str, results=results)
+    download_duration = time.time() - download_start_time
 
     analysis_results: Dict[str, OperationResult] = {}
     shared_context: Dict[str, Any] = {"pil_image_rgb": pil_image_rgb}
     person_detection_done = False
     face_detection_done = False
+    timing_stats = {"download": download_duration, "detection": 0.0, "embedding": 0.0, "classification": 0.0}
 
     # --- Helper function to get embeddings on demand, with caching ---
     def get_embedding_for_target(
         target: str, face_context: str, op_id: str
     ) -> Tuple[Optional[List[float]], Optional[str], Optional[List[int]]]:
-        nonlocal person_detection_done, face_detection_done
+        nonlocal person_detection_done, face_detection_done, timing_stats
 
         embedding_cache_key = f"embedding_{target}"
         if "face" in target:
             embedding_cache_key += f"_{face_context}"
         
         if embedding_cache_key in shared_context:
-            logger.info(f"Task {op_id}: Using cached embedding from '{embedding_cache_key}'.")
             return shared_context[embedding_cache_key]
 
-        logger.info(f"Task {op_id}: No cached embedding for '{embedding_cache_key}', computing now...")
         crop_box = None
         if target == "whole_image":
             pass
         elif target == "prominent_person":
             if not person_detection_done:
+                detection_start = time.time()
                 shared_context["prominent_person_bbox"] = get_prominent_person_bbox(pil_image_rgb)
+                timing_stats["detection"] += time.time() - detection_start
                 person_detection_done = True
             if shared_context.get("prominent_person_bbox"):
                 crop_box = shared_context["prominent_person_bbox"]
@@ -158,18 +162,22 @@ async def analyze_image(request: ImageAnalysisRequest):
                 logger.warning(f"Task {op_id}: prominent_person target, but no person found. Using whole image.")
         elif target == "prominent_face":
             if not face_detection_done:
+                 detection_block_start = time.time()
                  if not person_detection_done and face_context == "prominent_person":
                     shared_context["prominent_person_bbox"] = get_prominent_person_bbox(pil_image_rgb)
                     person_detection_done = True
                  person_bbox_for_face = shared_context.get("prominent_person_bbox") if face_context == "prominent_person" else None
                  shared_context["prominent_face_bbox"] = get_prominent_face_bbox_in_region(pil_image_rgb, person_bbox_for_face)
                  face_detection_done = True
+                 timing_stats["detection"] += time.time() - detection_block_start
             if shared_context.get("prominent_face_bbox"):
                 crop_box = shared_context["prominent_face_bbox"]
             else:
                 raise ValueError(f"No prominent face found for operation '{op_id}'.")
         
+        embedding_start = time.time()
         embedding_list, b64_img, bbox_used = get_clip_embedding(pil_image_rgb, MODEL_NAME_CLIP, crop_box)
+        timing_stats["embedding"] += time.time() - embedding_start
         shared_context[embedding_cache_key] = (embedding_list, b64_img, bbox_used)
         return embedding_list, b64_img, bbox_used
 
@@ -194,11 +202,6 @@ async def analyze_image(request: ImageAnalysisRequest):
 
             face_context = op_params.get("face_context", "prominent_person")
             
-            log_message = f"Processing task: id='{op_id}', type='{op_type}', target='{target}'"
-            if "face" in target or op_type == "classify":
-                 log_message += f", face_context='{face_context}'"
-            logger.info(log_message)
-
             current_result_data: Optional[Any] = None
             current_cropped_image_base64: Optional[str] = None
             current_cropped_image_bbox: Optional[List[int]] = None
@@ -206,10 +209,13 @@ async def analyze_image(request: ImageAnalysisRequest):
             if op_type == "detect_bounding_box":
                 if target == "prominent_person":
                     if not person_detection_done:
+                        detection_start = time.time()
                         shared_context["prominent_person_bbox"] = get_prominent_person_bbox(pil_image_rgb)
+                        timing_stats["detection"] += time.time() - detection_start
                         person_detection_done = True
                     current_result_data = shared_context.get("prominent_person_bbox")
                 elif target == "prominent_face":
+                    detection_block_start = time.time()
                     if not person_detection_done and face_context == "prominent_person":
                         shared_context["prominent_person_bbox"] = get_prominent_person_bbox(pil_image_rgb)
                         person_detection_done = True
@@ -217,6 +223,7 @@ async def analyze_image(request: ImageAnalysisRequest):
                         person_bbox = shared_context.get("prominent_person_bbox") if face_context == "prominent_person" else None
                         shared_context["prominent_face_bbox"] = get_prominent_face_bbox_in_region(pil_image_rgb, person_bbox)
                         face_detection_done = True
+                    timing_stats["detection"] += time.time() - detection_block_start
                     current_result_data = shared_context.get("prominent_face_bbox")
             
             elif op_type == "embed_clip_vit_b_32":
@@ -234,12 +241,14 @@ async def analyze_image(request: ImageAnalysisRequest):
                 if embedding is None:
                     raise ValueError("Could not generate embedding, classification cannot proceed.")
                 
+                classification_start = time.time()
                 try:
                     current_result_data = classify_embedding(embedding, int(collection_id))
                     current_cropped_image_base64 = b64_img
                     current_cropped_image_bbox = bbox_used
                 except FileNotFoundError as e:
                     raise ValueError(f"Classifier not found for collection_id {collection_id}.") from e
+                timing_stats["classification"] += time.time() - classification_start
 
             analysis_results[op_id] = OperationResult(
                 status="success", 
@@ -247,7 +256,6 @@ async def analyze_image(request: ImageAnalysisRequest):
                 cropped_image_base64=current_cropped_image_base64,
                 cropped_image_bbox=current_cropped_image_bbox
             )
-            logger.info(f"Successfully processed task: id='{op_id}'")
 
         except ValueError as ve:
             logger.warning(f"Skipping task {op_id} due to ValueError: {ve}")
@@ -257,6 +265,14 @@ async def analyze_image(request: ImageAnalysisRequest):
         except Exception as e:
             logger.exception(f"Failed to process task {op_id} ('{op_type}' on target '{target}'): {e}")
             analysis_results[op_id] = OperationResult(status="error", error_message=f"Internal error processing task: {e}")
+
+    total_duration = time.time() - req_start_time
+    timed_duration = sum(timing_stats.values())
+    timing_stats["other"] = total_duration - timed_duration
+    timing_stats["total"] = total_duration
+    
+    stats_str = " ".join([f"{k}={v:.4f}s" for k, v in timing_stats.items()])
+    logger.info(f"Analysis timing stats: {stats_str}")
 
     return ImageAnalysisResponse(image_url=image_url_str, results=analysis_results)
 
