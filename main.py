@@ -113,7 +113,7 @@ async def get_available_operations():
 
 
 @app.post("/analyze_image/", response_model=ImageAnalysisResponse, tags=["Analysis"])
-def analyze_image(request: ImageAnalysisRequest):
+async def analyze_image(request: ImageAnalysisRequest):
     image_url_str = str(request.image_url)
     logger.info(f"Received analysis request for URL: {image_url_str} with {len(request.tasks)} tasks.")
 
