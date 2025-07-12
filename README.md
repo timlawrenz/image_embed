@@ -107,6 +107,34 @@ Performs a series of analyses on an image from a given URL based on a list of ta
     ```
 *   Individual task errors/skips are reported within the `results` dictionary for each `operation_id` (see `status` and `error_message` fields above).
 
+### `POST /analyze_image_upload/`
+
+Performs a series of analyses on a directly uploaded image file. This endpoint uses a `multipart/form-data` request.
+
+**Request Body:**
+
+*   `image_file` (file, required): The image file to be analyzed.
+*   `tasks_json` (string, form-data, required): A JSON string representing the list of analysis tasks. The structure of this JSON string should be identical to the `tasks` array in the request for the `/analyze_image/` endpoint.
+
+**Example `tasks_json` value:**
+```json
+[
+  {
+    "operation_id": "face_bbox_from_upload",
+    "type": "detect_bounding_box",
+    "params": {"target": "prominent_face"}
+  }
+]
+```
+
+**Response Body (Success - 200 OK):**
+
+The response structure is identical to the `/analyze_image/` endpoint. The `image_url` field in the response will contain a placeholder string like `uploaded:your_filename.jpg`.
+
+**Error Responses:**
+
+*   **400 Bad Request:** If the `tasks_json` is malformed, the uploaded file is not a valid image, or other request errors occur.
+
 ### `GET /available_operations/`
 
 Provides a list of available analysis operations that can be used in the `tasks` array for the `/analyze_image` endpoint. It details each operation's allowed targets and default target.
@@ -189,6 +217,14 @@ curl -X POST "http://localhost:8000/analyze_image/" -H "Content-Type: applicatio
 
 This will return a JSON response containing the results for each requested analysis task.
 
+**Using `curl` for file upload:**
+
+The command below uploads a local file `some_person.jpg` and asks to find a face in it.
+
+```bash
+curl -X POST "http://localhost:8000/analyze_image_upload/" -H "Content-Type: multipart/form-data" -F "image_file=@/path/to/some_person.jpg" -F 'tasks_json=[{"operation_id": "face_from_file", "type": "detect_bounding_box", "params": {"target": "prominent_face"}}]'
+```
+
 ## Available Operations
 
 The `type` field in each task object specifies the operation to perform. You can retrieve a live list of these from the `GET /available_operations/` endpoint.
@@ -241,6 +277,5 @@ The application uses Python's built-in `logging` module. Basic logging is config
 *   Allow users to specify the CLIP model via the API request.
 *   Implement batch processing for multiple image URLs.
 *   Add more robust error handling and input validation.
-*   Option to upload an image directly instead of providing a URL.
 *   Add authentication.
 *   Containerize the application (e.g., using Docker).

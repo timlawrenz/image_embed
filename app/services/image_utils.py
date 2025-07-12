@@ -25,3 +25,20 @@ def download_image(image_url_str: str) -> Image.Image:
     except Exception as e:
         logger.error(f"Failed to process image after download from {image_url_str}: {e}")
         raise HTTPException(status_code=400, detail=f"Could not process image: {e}")
+
+
+def process_uploaded_image(image_bytes: bytes) -> Image.Image:
+    """
+    Processes image bytes from an upload into a PIL Image object.
+    """
+    logger.info("Processing uploaded image bytes.")
+    try:
+        pil_image = Image.open(io.BytesIO(image_bytes))
+        if pil_image.mode != 'RGB':
+            logger.info(f"Converting image from mode {pil_image.mode} to RGB.")
+            pil_image = pil_image.convert('RGB')
+        logger.info("Successfully processed uploaded image.")
+        return pil_image
+    except Exception as e:
+        logger.error(f"Failed to process uploaded image bytes: {e}")
+        raise HTTPException(status_code=400, detail=f"Could not process uploaded image: {e}")

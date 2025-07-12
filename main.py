@@ -12,8 +12,9 @@ import requests
 import torch
 import torchvision # Added for detection model
 import torchvision.transforms as T # Added for detection model
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from PIL import Image
+import json # For parsing tasks from form data
 # Pydantic models moved to app.pydantic_models
 import base64 # Added
 from app.pydantic_models import AnalysisTask, ImageAnalysisRequest, OperationResult, ImageAnalysisResponse, AvailableOperationsResponse
@@ -21,7 +22,7 @@ from app.pydantic_models import AnalysisTask, ImageAnalysisRequest, OperationRes
 from app.core import model_loader
 
 # Import service functions
-from app.services.image_utils import download_image
+from app.services.image_utils import download_image, process_uploaded_image
 from app.services.detection_service import get_prominent_person_bbox, get_prominent_face_bbox_in_region
 from app.services.embedding_service import get_clip_embedding
 from app.services.classification_service import classify_embedding
@@ -112,27 +113,16 @@ async def get_available_operations():
     return {"operations": AVAILABLE_OPERATIONS}
 
 
-@app.post("/analyze_image/", response_model=ImageAnalysisResponse, tags=["Analysis"])
-async def analyze_image(request: ImageAnalysisRequest):
-    req_start_time = time.time()
-    image_url_str = str(request.image_url)
-    logger.info(f"Received analysis request for URL: {image_url_str} with {len(request.tasks)} tasks.")
-
-    download_start_time = time.time()
-    try:
-        pil_image_rgb = download_image(image_url_str)
-    except HTTPException as e:
-        results = {}
-        for task_def in request.tasks:
-            results[task_def.operation_id] = OperationResult(status="error", error_message=f"Failed to download or process base image: {e.detail}")
-        return ImageAnalysisResponse(image_url=image_url_str, results=results)
-    download_duration = time.time() - download_start_time
-
+def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> Tuple[Dict[str, OperationResult], Dict[str, float]]:
+    """
+    Core logic to perform a list of analysis tasks on a given image.
+    Returns a dictionary of results and a dictionary of timing stats.
+    """
     analysis_results: Dict[str, OperationResult] = {}
     shared_context: Dict[str, Any] = {"pil_image_rgb": pil_image_rgb}
     person_detection_done = False
     face_detection_done = False
-    timing_stats = {"download": download_duration, "detection": 0.0, "embedding": 0.0, "classification": 0.0}
+    timing_stats = {"detection": 0.0, "embedding": 0.0, "classification": 0.0}
 
     # --- Helper function to get embeddings on demand, with caching ---
     def get_embedding_for_target(
@@ -182,7 +172,7 @@ async def analyze_image(request: ImageAnalysisRequest):
         return embedding_list, b64_img, bbox_used
 
     # --- Process Tasks ---
-    for task_def in request.tasks:
+    for task_def in tasks:
         op_id = task_def.operation_id
         op_type = task_def.type
         op_params = task_def.params if task_def.params is not None else {}
@@ -266,15 +256,86 @@ async def analyze_image(request: ImageAnalysisRequest):
             logger.exception(f"Failed to process task {op_id} ('{op_type}' on target '{target}'): {e}")
             analysis_results[op_id] = OperationResult(status="error", error_message=f"Internal error processing task: {e}")
 
+    return analysis_results, timing_stats
+
+
+@app.post("/analyze_image/", response_model=ImageAnalysisResponse, tags=["Analysis"])
+async def analyze_image(request: ImageAnalysisRequest):
+    req_start_time = time.time()
+    image_url_str = str(request.image_url)
+    logger.info(f"Received analysis request for URL: {image_url_str} with {len(request.tasks)} tasks.")
+
+    download_start_time = time.time()
+    try:
+        pil_image_rgb = download_image(image_url_str)
+    except HTTPException as e:
+        results = {
+            task.operation_id: OperationResult(status="error", error_message=f"Failed to download or process base image: {e.detail}")
+            for task in request.tasks
+        }
+        return ImageAnalysisResponse(image_url=image_url_str, results=results)
+    download_duration = time.time() - download_start_time
+
+    analysis_results, timing_stats = _perform_analysis(pil_image_rgb, request.tasks)
+    timing_stats["download"] = download_duration
+
     total_duration = time.time() - req_start_time
     timed_duration = sum(timing_stats.values())
     timing_stats["other"] = total_duration - timed_duration
     timing_stats["total"] = total_duration
     
     stats_str = " ".join([f"{k}={v:.4f}s" for k, v in timing_stats.items()])
-    logger.info(f"Analysis timing stats: {stats_str}")
+    logger.info(f"Analysis timing stats for URL {image_url_str}: {stats_str}")
 
     return ImageAnalysisResponse(image_url=image_url_str, results=analysis_results)
+
+
+@app.post("/analyze_image_upload/", response_model=ImageAnalysisResponse, tags=["Analysis"])
+async def analyze_image_upload(
+    tasks_json: str = Form(..., description='A JSON string of the analysis tasks list, conforming to the structure of the "tasks" field in the /analyze_image endpoint.'),
+    image_file: UploadFile = File(..., description="Image file to analyze.")
+):
+    """
+    Performs a series of analyses on a directly uploaded image.
+
+    This endpoint is suitable for server-to-server communication where the image
+    is available locally and can be sent as part of a multipart/form-data request,
+    avoiding the need to expose it via a public URL.
+    """
+    req_start_time = time.time()
+    logger.info(f"Received analysis request for uploaded file: {image_file.filename}")
+
+    try:
+        tasks_data = json.loads(tasks_json)
+        # Using model_validate, which is for Pydantic v2. Use .parse_obj for v1.
+        tasks = [AnalysisTask.model_validate(task) for task in tasks_data]
+    except (json.JSONDecodeError, ValueError) as e: # ValueError from Pydantic validation
+        raise HTTPException(status_code=400, detail=f"Invalid tasks JSON format or structure: {e}")
+
+    processing_start_time = time.time()
+    try:
+        image_bytes = await image_file.read()
+        pil_image_rgb = process_uploaded_image(image_bytes)
+    except HTTPException as e:
+        results = {
+            task.operation_id: OperationResult(status="error", error_message=f"Failed to process base image: {e.detail}")
+            for task in tasks
+        }
+        return ImageAnalysisResponse(image_url=f"uploaded:{image_file.filename}", results=results)
+    processing_duration = time.time() - processing_start_time
+
+    analysis_results, timing_stats = _perform_analysis(pil_image_rgb, tasks)
+    timing_stats["processing"] = processing_duration
+
+    total_duration = time.time() - req_start_time
+    timed_duration = sum(timing_stats.values())
+    timing_stats["other"] = total_duration - timed_duration
+    timing_stats["total"] = total_duration
+
+    stats_str = " ".join([f"{k}={v:.4f}s" for k, v in timing_stats.items()])
+    logger.info(f"Analysis timing stats for uploaded file {image_file.filename}: {stats_str}")
+
+    return ImageAnalysisResponse(image_url=f"uploaded:{image_file.filename}", results=analysis_results)
 
 
 if __name__ == "__main__":
