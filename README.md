@@ -1,12 +1,12 @@
 # Advanced Image Analysis API
 
 [ ![CircleCI](https://dl.circleci.com/status-badge/img/gh/timlawrenz/image_embed/tree/main.svg?style=svg) ](https://dl.circleci.com/status-badge/redirect/gh/timlawrenz/image_embed/tree/main)
-An advanced FastAPI service that performs various analyses on images from a URL. You provide an image URL and a list of analysis tasks, and the API returns the results for each task.
+An advanced FastAPI service that performs various analyses on images. You provide an image—either via a URL or by direct file upload—and a list of analysis tasks, and the API returns the results for each task.
 
 ## Features
 
-*   Accepts an image URL and a list of analysis tasks as input.
-*   Downloads the image once per request.
+*   Accepts an image via URL or direct upload, along with a list of analysis tasks.
+*   Retrieves the image once per request (by downloading from URL or processing an upload).
 *   Converts the image to RGB format if necessary.
 *   Performs requested operations, which can include:
     *   **Human Detection:** Detects the most prominent person using Faster R-CNN.
