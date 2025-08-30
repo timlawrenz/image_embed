@@ -26,6 +26,7 @@ from app.services.image_utils import download_image, process_uploaded_image
 from app.services.detection_service import get_prominent_person_bbox, get_prominent_face_bbox_in_region
 from app.services.embedding_service import get_clip_embedding
 from app.services.classification_service import classify_embedding
+from app.services.description_service import get_image_description
 
 import time
 import os
@@ -99,6 +100,11 @@ AVAILABLE_OPERATIONS = {
         "description": "Classifies an image region using a pre-trained model for a specific collection.",
         "allowed_targets": ["whole_image", "prominent_person", "prominent_face"],
         "default_target": "whole_image",
+    },
+    "describe_image": {
+        "description": "Generates a text description of an image region.",
+        "allowed_targets": ["whole_image", "prominent_person", "prominent_face"],
+        "default_target": "whole_image",
     }
 }
 
@@ -122,7 +128,7 @@ def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> 
     shared_context: Dict[str, Any] = {"pil_image_rgb": pil_image_rgb}
     person_detection_done = False
     face_detection_done = False
-    timing_stats = {"detection": 0.0, "embedding": 0.0, "classification": 0.0}
+    timing_stats = {"detection": 0.0, "embedding": 0.0, "classification": 0.0, "description": 0.0}
 
     # --- Helper function to get embeddings on demand, with caching ---
     def get_embedding_for_target(
@@ -239,6 +245,41 @@ def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> 
                 except FileNotFoundError as e:
                     raise ValueError(f"Classifier not found for collection_id {collection_id}.") from e
                 timing_stats["classification"] += time.time() - classification_start
+
+            elif op_type == "describe_image":
+                crop_box_for_desc = None
+                if target == "prominent_person":
+                    if not person_detection_done:
+                        detection_start = time.time()
+                        shared_context["prominent_person_bbox"] = get_prominent_person_bbox(pil_image_rgb)
+                        timing_stats["detection"] += time.time() - detection_start
+                        person_detection_done = True
+                    if shared_context.get("prominent_person_bbox"):
+                        crop_box_for_desc = shared_context["prominent_person_bbox"]
+                    else:
+                        logger.warning(f"Task {op_id}: prominent_person target, but no person found. Describing whole image.")
+                elif target == "prominent_face":
+                    if not face_detection_done:
+                        detection_block_start = time.time()
+                        if not person_detection_done and face_context == "prominent_person":
+                            shared_context["prominent_person_bbox"] = get_prominent_person_bbox(pil_image_rgb)
+                            person_detection_done = True
+                        person_bbox_for_face = shared_context.get("prominent_person_bbox") if face_context == "prominent_person" else None
+                        shared_context["prominent_face_bbox"] = get_prominent_face_bbox_in_region(pil_image_rgb, person_bbox_for_face)
+                        face_detection_done = True
+                        timing_stats["detection"] += time.time() - detection_block_start
+                    if shared_context.get("prominent_face_bbox"):
+                        crop_box_for_desc = shared_context["prominent_face_bbox"]
+                    else:
+                        raise ValueError(f"No prominent face found for operation '{op_id}'.")
+
+                description_start = time.time()
+                caption, b64_img, bbox_used = get_image_description(pil_image_rgb, crop_box_for_desc)
+                timing_stats["description"] += time.time() - description_start
+                
+                current_result_data = caption
+                current_cropped_image_base64 = b64_img
+                current_cropped_image_bbox = bbox_used
 
             analysis_results[op_id] = OperationResult(
                 status="success", 

@@ -260,6 +260,17 @@ Determines if an image region belongs to a specific collection using a pre-train
 *   **`data` in result**: A dictionary containing a boolean `is_in_collection` and the `probability` (float from 0.0 to 1.0) of that being true. Example: `{"is_in_collection": true, "probability": 0.95}`. A task will be skipped with an error if no classifier model for the requested `collection_id` is found on the server.
 *   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if the `target` for classification was not `"whole_image"`, following the same logic as `embed_clip_vit_b_32`.
 
+### `describe_image`
+Generates a text description of an image region using a pre-trained image captioning model.
+*   **`params`**:
+    *   `target` (string, optional, default: `"whole_image"`):
+        *   `"whole_image"`: Generates a description for the entire image.
+        *   `"prominent_person"`: Generates a description for the cropped region of the most prominent person. If no person is found, falls back to the whole image.
+        *   `"prominent_face"`: Generates a description for the cropped region of the most prominent face. Requires a face to be found.
+    *   `face_context` (string, optional, default: `"prominent_person"`): Same as in `detect_bounding_box`, used when `target` is `"prominent_face"`.
+*   **`data` in result**: A string containing the generated text description.
+*   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if `target` was `"prominent_person"` (and a person was found and cropped) or `"prominent_face"` (and a face was found and cropped).
+
 ## CLIP Model and Device Management
 
 The service currently uses the `"ViT-B/32"` CLIP model by default for the `embed_clip_vit_b_32` operation. This default is specified by the `MODEL_NAME_CLIP` variable in `main.py`. You can change this variable to use a different default CLIP model (e.g., `"ViT-L/14"`, `"RN50x16"`).

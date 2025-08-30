@@ -8,6 +8,7 @@ import glob
 import re
 import joblib
 import json
+from transformers import BlipProcessor, BlipForConditionalGeneration
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +123,32 @@ def get_face_detection_model():
     return _loaded_models[cache_key]
 
 
+def get_image_captioning_model_and_processor(model_name: str = "Salesforce/blip-image-captioning-large"):
+    """
+    Loads and caches an image captioning model and its processor from Hugging Face.
+    """
+    cache_key_model = f"caption_{model_name}_model"
+    cache_key_processor = f"caption_{model_name}_processor"
+
+    if cache_key_model not in _loaded_models:
+        logger.info(f"ModelLoader: Loading image captioning model '{model_name}' on {DEVICE}...")
+        try:
+            processor = BlipProcessor.from_pretrained(model_name)
+            model = BlipForConditionalGeneration.from_pretrained(model_name).to(DEVICE)
+            _loaded_models[cache_key_model] = model
+            _loaded_models[cache_key_processor] = processor
+            logger.info(f"ModelLoader: Image captioning model '{model_name}' loaded and cached successfully.")
+        except Exception as e:
+            logger.exception(f"ModelLoader: Failed to load image captioning model '{model_name}'.")
+            raise RuntimeError(f"Could not load image captioning model '{model_name}': {e}") from e
+    else:
+        logger.debug(f"ModelLoader: Using cached image captioning model '{model_name}'.")
+        model = _loaded_models[cache_key_model]
+        processor = _loaded_models[cache_key_processor]
+    
+    return model, processor
+
+
 def get_classifier_model(collection_id: int):
     """
     Loads the classifier for a given collection_id. It first attempts to use the
@@ -202,4 +229,5 @@ def preload_all_models(clip_model_name: str):
     get_clip_model_and_preprocess(clip_model_name)
     get_person_detection_model()
     get_face_detection_model()
+    get_image_captioning_model_and_processor()
     logger.info("--- Model Pre-loading Complete ---")

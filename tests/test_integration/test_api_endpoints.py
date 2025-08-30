@@ -61,3 +61,43 @@ def test_analyze_image_classification_on_face(client, mocker):
     mock_get_face.assert_called_once()
     mock_get_embedding.assert_called_once()
     mock_classify.assert_called_once()
+
+
+def test_analyze_image_describe_image(client, mocker):
+    """
+    Tests the 'describe_image' operation through the API.
+    """
+    # 1. Arrange
+    mocker.patch("main.download_image", return_value=Image.new('RGB', (800, 600)))
+    mock_get_description = mocker.patch(
+        "main.get_image_description", 
+        return_value=("A detailed description of the image.", None, None)
+    )
+
+    request_data = {
+        "image_url": "http://example.com/image.jpg",
+        "tasks": [
+            {
+                "operation_id": "describe_whole_image",
+                "type": "describe_image",
+                "params": {
+                    "target": "whole_image"
+                }
+            }
+        ]
+    }
+
+    # 3. Act
+    response = client.post("/analyze_image/", json=request_data)
+
+    # 4. Assert
+    assert response.status_code == 200
+    results = response.json()["results"]
+
+    assert "describe_whole_image" in results
+    assert results["describe_whole_image"]["status"] == "success"
+    assert results["describe_whole_image"]["data"] == "A detailed description of the image."
+    assert results["describe_whole_image"]["cropped_image_base64"] is None
+    assert results["describe_whole_image"]["cropped_image_bbox"] is None
+
+    mock_get_description.assert_called_once()

@@ -3,6 +3,8 @@ import logging
 import requests
 from PIL import Image
 from fastapi import HTTPException
+import base64
+from typing import Optional, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -42,3 +44,19 @@ def process_uploaded_image(image_bytes: bytes) -> Image.Image:
     except Exception as e:
         logger.error(f"Failed to process uploaded image bytes: {e}")
         raise HTTPException(status_code=400, detail=f"Could not process uploaded image: {e}")
+
+def crop_image_and_get_base64(
+    pil_image: Image.Image, 
+    bbox: List[int]
+) -> Tuple[Image.Image, str]:
+    """
+    Crops a PIL image using a bounding box and returns the cropped image
+    along with its base64 encoded PNG string representation.
+    """
+    cropped_image = pil_image.crop(bbox)
+    
+    buffer = io.BytesIO()
+    cropped_image.save(buffer, format="PNG")
+    b64_string = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    
+    return cropped_image, b64_string
