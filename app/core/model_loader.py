@@ -133,8 +133,9 @@ def get_image_captioning_model_and_processor(model_name: str = "Salesforce/blip-
     if cache_key_model not in _loaded_models:
         logger.info(f"ModelLoader: Loading image captioning model '{model_name}' on {DEVICE}...")
         try:
+            model = BlipForConditionalGeneration.from_pretrained(model_name)
+            model = model.to(DEVICE)
             processor = BlipProcessor.from_pretrained(model_name)
-            model = BlipForConditionalGeneration.from_pretrained(model_name).to(DEVICE)
             _loaded_models[cache_key_model] = model
             _loaded_models[cache_key_processor] = processor
             logger.info(f"ModelLoader: Image captioning model '{model_name}' loaded and cached successfully.")

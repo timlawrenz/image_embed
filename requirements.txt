@@ -11,4 +11,8 @@ torch
 torchaudio
 torchvision
 uvicorn[standard]
-transformers
+transformers>=4.41.2
+accelerate
+protobuf
+einops
+timm

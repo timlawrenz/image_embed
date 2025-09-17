@@ -268,8 +268,35 @@ Generates a text description of an image region using a pre-trained image captio
         *   `"prominent_person"`: Generates a description for the cropped region of the most prominent person. If no person is found, falls back to the whole image.
         *   `"prominent_face"`: Generates a description for the cropped region of the most prominent face. Requires a face to be found.
     *   `face_context` (string, optional, default: `"prominent_person"`): Same as in `detect_bounding_box`, used when `target` is `"prominent_face"`.
+    *   `max_length` (integer, optional, default: `50`): The maximum number of tokens for the generated description.
 *   **`data` in result**: A string containing the generated text description.
 *   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if `target` was `"prominent_person"` (and a person was found and cropped) or `"prominent_face"` (and a face was found and cropped).
+
+## Helper Scripts
+
+### `scripts/caption_folder.py`
+
+This script provides a convenient way to generate text captions for all images in a specified folder. It iterates through each image, sends it to the running API's `/analyze_image_upload/` endpoint to get a description, and saves the resulting text to a `.txt` file with the same name as the image.
+
+**Usage:**
+
+First, ensure the main FastAPI service is running. Then, execute the script from your terminal:
+
+```bash
+python scripts/caption_folder.py /path/to/your/image_folder
+```
+
+*   The script will automatically find all images with common extensions (e.g., `.jpg`, `.png`).
+*   For each `image_name.jpg`, it will create a `image_name.txt` file containing the description.
+*   By default, it will skip images that already have a corresponding `.txt` file.
+
+**Options:**
+
+*   `--force` or `-f`: Use this flag to overwrite existing `.txt` caption files.
+
+    ```bash
+    python scripts/caption_folder.py /path/to/your/image_folder --force
+    ```
 
 ## CLIP Model and Device Management
 

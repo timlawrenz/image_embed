@@ -2,20 +2,24 @@ from PIL import Image
 from typing import Optional, List, Tuple
 from app.core import model_loader
 from app.services.image_utils import crop_image_and_get_base64
+import re
 
-# A specific model name can be chosen, but we'll use a default for now.
+# The model name for Salesforce's BLIP model.
 CAPTION_MODEL_NAME = "Salesforce/blip-image-captioning-large"
 
 def get_image_description(
     pil_image_rgb: Image.Image,
-    crop_box: Optional[List[int]] = None
+    crop_box: Optional[List[int]] = None,
+    max_length: int = 50  # Adjusted for typical BLIP caption length
 ) -> Tuple[str, Optional[str], Optional[List[int]]]:
     """
-    Generates a text description for an image or a cropped region of it.
+    Generates a text description for an image or a cropped region of it
+    using the Salesforce BLIP model.
 
     Args:
         pil_image_rgb: The PIL image in RGB format.
         crop_box: Optional bounding box [xmin, ymin, xmax, ymax] to crop from the image.
+        max_length: The maximum length of the generated caption.
 
     Returns:
         A tuple containing:
@@ -30,21 +34,20 @@ def get_image_description(
     b64_image = None
     
     if crop_box:
-        # This utility function crops the image, and also returns the base64 representation
         image_to_process, b64_image = crop_image_and_get_base64(pil_image_rgb, crop_box)
 
-    # Process image for the captioning model
-    # Note: The "large" model may benefit from a different image size, but the processor handles resizing.
+    # Process the image.
     inputs = processor(images=image_to_process, return_tensors="pt").to(device)
     
-    # Generate caption using the model
-    outputs = model.generate(**inputs, max_length=50) # Set max_length for concise captions
+    # Generate the caption.
+    outputs = model.generate(
+        **inputs,
+        max_length=max_length,
+        num_beams=4,
+        early_stopping=True
+    )
     
-    # Decode the generated tokens to a string
+    # Decode the generated tokens.
     caption = processor.decode(outputs[0], skip_special_tokens=True)
-
-    # The first word is often "a" or "an", which we can capitalize for better readability.
-    if caption:
-        caption = caption[0].upper() + caption[1:]
 
     return caption, b64_image, crop_box

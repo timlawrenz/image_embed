@@ -247,6 +247,7 @@ def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> 
                 timing_stats["classification"] += time.time() - classification_start
 
             elif op_type == "describe_image":
+                max_length = op_params.get("max_length", 1024)
                 crop_box_for_desc = None
                 if target == "prominent_person":
                     if not person_detection_done:
@@ -274,7 +275,7 @@ def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> 
                         raise ValueError(f"No prominent face found for operation '{op_id}'.")
 
                 description_start = time.time()
-                caption, b64_img, bbox_used = get_image_description(pil_image_rgb, crop_box_for_desc)
+                caption, b64_img, bbox_used = get_image_description(pil_image_rgb, crop_box_for_desc, max_length)
                 timing_stats["description"] += time.time() - description_start
                 
                 current_result_data = caption
