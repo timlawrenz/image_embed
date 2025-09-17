@@ -24,7 +24,7 @@ from app.core import model_loader
 # Import service functions
 from app.services.image_utils import download_image, process_uploaded_image
 from app.services.detection_service import get_prominent_person_bbox, get_prominent_face_bbox_in_region
-from app.services.embedding_service import get_clip_embedding
+from app.services.embedding_service import get_clip_embedding, get_dino_embedding
 from app.services.classification_service import classify_embedding
 from app.services.description_service import get_image_description
 
@@ -93,6 +93,11 @@ AVAILABLE_OPERATIONS = {
     },
     "embed_clip_vit_b_32": {
         "description": f"Generates an embedding using the CLIP {MODEL_NAME_CLIP} model.",
+        "allowed_targets": ["whole_image", "prominent_person", "prominent_face"],
+        "default_target": "whole_image",
+    },
+    "embed_dino_v2": {
+        "description": "Generates a visual embedding using the DINOv2 model.",
         "allowed_targets": ["whole_image", "prominent_person", "prominent_face"],
         "default_target": "whole_image",
     },
@@ -228,6 +233,39 @@ def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> 
                 current_cropped_image_base64 = b64_img
                 current_cropped_image_bbox = bbox_used
             
+            elif op_type == "embed_dino_v2":
+                # This part is not using the shared embedding cache, as DINO is a different embedding type.
+                embedding_start = time.time()
+                crop_box_for_dino = None
+                if target == "prominent_person":
+                    if not person_detection_done:
+                        detection_start = time.time()
+                        shared_context["prominent_person_bbox"] = get_prominent_person_bbox(pil_image_rgb)
+                        timing_stats["detection"] += time.time() - detection_start
+                        person_detection_done = True
+                    if shared_context.get("prominent_person_bbox"):
+                        crop_box_for_dino = shared_context["prominent_person_bbox"]
+                elif target == "prominent_face":
+                    if not face_detection_done:
+                        detection_block_start = time.time()
+                        if not person_detection_done and face_context == "prominent_person":
+                            shared_context["prominent_person_bbox"] = get_prominent_person_bbox(pil_image_rgb)
+                            person_detection_done = True
+                        person_bbox_for_face = shared_context.get("prominent_person_bbox") if face_context == "prominent_person" else None
+                        shared_context["prominent_face_bbox"] = get_prominent_face_bbox_in_region(pil_image_rgb, person_bbox_for_face)
+                        face_detection_done = True
+                        timing_stats["detection"] += time.time() - detection_block_start
+                    if shared_context.get("prominent_face_bbox"):
+                        crop_box_for_dino = shared_context["prominent_face_bbox"]
+                    else:
+                        raise ValueError(f"No prominent face found for operation '{op_id}'.")
+                
+                embedding_list, b64_img, bbox_used = get_dino_embedding(pil_image_rgb, crop_bbox=crop_box_for_dino)
+                timing_stats["embedding"] += time.time() - embedding_start
+                current_result_data = embedding_list
+                current_cropped_image_base64 = b64_img
+                current_cropped_image_bbox = bbox_used
+
             elif op_type == "classify":
                 collection_id = op_params.get("collection_id")
                 if collection_id is None:

@@ -251,6 +251,17 @@ Generates an embedding using the CLIP ViT-B/32 model.
 *   **`data` in result**: An array of floats representing the embedding vector.
 *   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if `target` was `"prominent_person"` (and a person was found and cropped) or `"prominent_face"` (and a face was found and cropped).
 
+### `embed_dino_v2`
+Generates a visual embedding using the DINOv2 model. This is useful for similarity search based on visual features like composition, color, and texture, rather than semantic content.
+*   **`params`**:
+    *   `target` (string, optional, default: `"whole_image"`):
+        *   `"whole_image"`: Generates embedding for the entire image.
+        *   `"prominent_person"`: Generates embedding for the cropped region of the most prominent person. If no person is found, falls back to the whole image.
+        *   `"prominent_face"`: Generates embedding for the cropped region of the most prominent face. Requires a face to be found.
+    *   `face_context` (string, optional, default: `"prominent_person"`): Same as in `detect_bounding_box`, used when `target` is `"prominent_face"`.
+*   **`data` in result**: An array of floats representing the DINOv2 embedding vector.
+*   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if a crop was performed.
+
 ### `classify`
 Determines if an image region belongs to a specific collection using a pre-trained binary classifier. For each `collection_id`, a unique model is trained to predict whether an item is part of that collection (`true`) or not (`false`). The embedding logic used to get the vector for classification is identical to `embed_clip_vit_b_32`.
 *   **`params`**:
