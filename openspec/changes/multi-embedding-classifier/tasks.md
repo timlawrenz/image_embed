@@ -2,39 +2,28 @@
 
 ## Phase 1: Crawlr API Enhancement
 
-### Task 1.1: Update Collections API Endpoint
-**File:** `crawlr/app/controllers/collections_controller.rb`
+### ✅ Task 1.1: COMPLETED
+The `/collections.json` endpoint now includes collection focus metadata with `derivative_type_name` and `embedding_type_name` fields.
 
-- [ ] Modify `index` action JSON format to include existing collection_focus association
-- [ ] Include nested derivative_type and embedding_type (already associated)
-- [ ] Update/add API tests in `spec/requests/collections_request_spec.rb`
-
-**Acceptance:**
-- `/collections.json` returns focus metadata
-- Response includes nested `collection_focus.derivative_type.name` and `collection_focus.embedding_type.name`
-- Existing clients not broken (only adds data, doesn't remove)
-- No model changes needed - just controller JSON serialization
-
-### Task 1.2: Deploy Crawlr Changes
-- [ ] Create PR for crawlr changes
-- [ ] Get code review
-- [ ] Deploy to production
-- [ ] Verify endpoint manually: `curl https://crawlr.lawrenz.com/collections.json`
+### Task 1.2: Verify API Response
+- [x] Endpoint deployed to production
+- [x] Returns expected structure with `collection_focus.derivative_type_name` and `embedding_type_name`
+- [x] Tested with: `curl https://crawlr.lawrenz.com/collections.json`
 
 ## Phase 2: Image_Embed Training Enhancement
 
 ### Task 2.1: Update Training Script to Fetch Metadata
 **File:** `image_embed/scripts/train_classifiers.py`
 
-- [ ] Modify `fetch_collections()` to extract nested collection_focus from response
-- [ ] Extract `derivative_type.name` and `embedding_type.name` from nested structure
+- [ ] Modify `fetch_collections()` to extract collection_focus from response
+- [ ] Extract `derivative_type_name` and `embedding_type_name` from JSON
 - [ ] Add validation for derivative_type and embedding_type presence
 - [ ] Log warnings for collections missing focus metadata
 - [ ] Update `train_and_save_model()` signature to accept metadata parameters
 
 **Acceptance:**
 - Script fetches collections with focus metadata
-- Correctly navigates nested JSON: `collection['collection_focus']['derivative_type']['name']`
+- Correctly extracts: `collection['collection_focus']['derivative_type_name']`
 - Skips collections without focus (with warning log)
 - Passes metadata to training function
 

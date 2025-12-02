@@ -49,53 +49,25 @@ Store embedding type metadata with classifiers and use it to generate the correc
 
 ### Part 1: Enhance Crawlr API
 
-**Status:** The data already exists in crawlr models! We just need to expose it via the API.
+**Status:** ✅ **COMPLETED** - Already implemented!
 
-**File:** `crawlr/app/controllers/collections_controller.rb`
+The `/collections.json` endpoint now returns collection focus metadata:
 
-The `/collections.json` endpoint currently returns:
-```ruby
-format.json { render json: @collections.as_json(only: %i[id name]) }
-```
-
-Update it to include the existing collection_focus associations:
-
-```ruby
-format.json { 
-  render json: @collections.as_json(
-    only: [:id, :name],
-    include: {
-      collection_focus: {
-        include: {
-          derivative_type: { only: [:name] },
-          embedding_type: { only: [:name] }
-        }
-      }
-    }
-  )
-}
-```
-
-**Expected JSON output:**
+**Actual JSON output:**
 ```json
 [
   {
-    "id": 42,
-    "name": "Portraits",
+    "id": 15,
+    "name": "boxy-dino",
     "collection_focus": {
-      "id": 123,
-      "derivative_type": {
-        "name": "prominent_face"
-      },
-      "embedding_type": {
-        "name": "embed_dino_v2"
-      }
+      "derivative_type_name": "prominent_person",
+      "embedding_type_name": "embed_dino_v2"
     }
   }
 ]
 ```
 
-**Note:** No model changes needed - all associations already exist!
+This provides exactly what we need: the embedding type and derivative type for each collection.
 
 ### Part 2: Store Metadata During Training
 
@@ -315,10 +287,7 @@ elif op_type == "classify":
 ## Migration Path
 
 ### Step 1: Update Crawlr (crawlr repo)
-1. Add helper methods to `CollectionFocus` model
-2. Update `CollectionsController#index` to include focus metadata
-3. Deploy to production
-4. Verify `/collections.json` returns expected structure
+✅ **COMPLETED** - Collections API now returns focus metadata
 
 ### Step 2: Update Image_Embed Training (image_embed repo)
 1. Update `train_classifiers.py` to fetch and store metadata
