@@ -271,15 +271,18 @@ def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> 
                 if collection_id is None:
                     raise ValueError("'collection_id' param is required for 'classify' operation.")
                 
-                embedding, b64_img, bbox_used = get_embedding_for_target(target, face_context, op_id)
-                if embedding is None:
-                    raise ValueError("Could not generate embedding, classification cannot proceed.")
-                
                 classification_start = time.time()
                 try:
-                    current_result_data = classify_embedding(embedding, int(collection_id))
-                    current_cropped_image_base64 = b64_img
-                    current_cropped_image_bbox = bbox_used
+                    from app.services.classification_service import classify_embedding_from_image
+                    current_result_data = classify_embedding_from_image(
+                        pil_image_rgb, 
+                        int(collection_id),
+                        shared_context,
+                        timing_stats
+                    )
+                    # Classification doesn't return cropped image data
+                    current_cropped_image_base64 = None
+                    current_cropped_image_bbox = None
                 except FileNotFoundError as e:
                     raise ValueError(f"Classifier not found for collection_id {collection_id}.") from e
                 timing_stats["classification"] += time.time() - classification_start

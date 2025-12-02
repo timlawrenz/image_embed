@@ -1,7 +1,9 @@
 import logging
 from typing import Any, Dict, List
+import time
 
 import numpy as np
+from PIL import Image
 from app.core import model_loader
 
 logger = logging.getLogger(__name__)
@@ -61,3 +63,101 @@ def classify_embedding(embedding: List[float], collection_id: int) -> Dict[str, 
     except Exception as e:
         logger.exception(f"An unexpected error occurred during classification for collection_id {collection_id}.")
         raise RuntimeError(f"Failed to classify embedding for collection {collection_id}: {e}") from e
+
+
+def classify_embedding_from_image(
+    pil_image: Image.Image, 
+    collection_id: int,
+    shared_context: Dict[str, Any],
+    timing_stats: Dict[str, float]
+) -> Dict[str, Any]:
+    """
+    Classifies an image for a collection by generating the correct embedding type.
+    
+    This function:
+    1. Loads classifier metadata to determine which embedding type to use
+    2. Performs detection if needed based on derivative_type
+    3. Generates the correct embedding (CLIP or DINO)
+    4. Classifies the embedding
+    
+    Args:
+        pil_image: PIL Image in RGB format
+        collection_id: ID of the collection classifier
+        shared_context: Shared detection/embedding cache
+        timing_stats: Performance timing dictionary
+    
+    Returns:
+        Dict with keys: is_in_collection (bool), probability (float)
+    
+    Raises:
+        FileNotFoundError: If no classifier or metadata found
+        ValueError: If derivative_type or embedding_type is invalid
+    """
+    from app.services.detection_service import get_prominent_person_bbox, get_prominent_face_bbox_in_region
+    from app.services.embedding_service import get_clip_embedding, get_dino_embedding
+    
+    # Get classifier metadata to determine embedding type and target
+    metadata = model_loader.get_classifier_metadata(collection_id)
+    embedding_type = metadata['embedding_type']
+    derivative_type = metadata['derivative_type']
+    
+    logger.info(f"Classifying for collection {collection_id} using {embedding_type} on {derivative_type}")
+    
+    # Map derivative_type to target
+    target_map = {
+        'whole_image': 'whole_image',
+        'prominent_person': 'prominent_person',
+        'prominent_face': 'prominent_face'
+    }
+    target = target_map.get(derivative_type)
+    
+    if not target:
+        raise ValueError(f"Invalid derivative_type '{derivative_type}' for collection {collection_id}")
+    
+    # Determine crop_box based on target
+    crop_box = None
+    if target == 'prominent_person':
+        if 'prominent_person_bbox' not in shared_context:
+            detection_start = time.time()
+            shared_context['prominent_person_bbox'] = get_prominent_person_bbox(pil_image)
+            timing_stats['detection'] += time.time() - detection_start
+        crop_box = shared_context.get('prominent_person_bbox')
+        if not crop_box:
+            logger.warning(f"No person detected for collection {collection_id}, using whole image")
+    
+    elif target == 'prominent_face':
+        if 'prominent_face_bbox' not in shared_context:
+            detection_start = time.time()
+            if 'prominent_person_bbox' not in shared_context:
+                shared_context['prominent_person_bbox'] = get_prominent_person_bbox(pil_image)
+            person_bbox = shared_context.get('prominent_person_bbox')
+            shared_context['prominent_face_bbox'] = get_prominent_face_bbox_in_region(pil_image, person_bbox)
+            timing_stats['detection'] += time.time() - detection_start
+        crop_box = shared_context.get('prominent_face_bbox')
+        
+        if not crop_box:
+            raise ValueError(f"No face detected for collection {collection_id} with face target")
+    
+    # Generate correct embedding type with caching
+    embedding_cache_key = f"embedding_{embedding_type}_{target}"
+    
+    if embedding_cache_key not in shared_context:
+        embedding_start = time.time()
+        
+        if embedding_type == 'embed_clip_vit_b_32':
+            from main import MODEL_NAME_CLIP
+            embedding_list, _, _ = get_clip_embedding(pil_image, MODEL_NAME_CLIP, crop_box)
+        elif embedding_type == 'embed_dino_v2':
+            embedding_list, _, _ = get_dino_embedding(pil_image, crop_box)
+        else:
+            raise ValueError(f"Unsupported embedding_type '{embedding_type}' for collection {collection_id}")
+        
+        timing_stats['embedding'] += time.time() - embedding_start
+        shared_context[embedding_cache_key] = embedding_list
+        logger.debug(f"Generated and cached {embedding_type} embedding for {target}")
+    else:
+        embedding_list = shared_context[embedding_cache_key]
+        logger.debug(f"Using cached {embedding_type} embedding for {target}")
+    
+    # Classify using the existing function
+    return classify_embedding(embedding_list, collection_id)

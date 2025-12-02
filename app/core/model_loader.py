@@ -202,14 +202,26 @@ def get_classifier_model(collection_id: int):
         latest_file = None
         
         # 1. Try to get model from the best_models config
-        best_model_filename = _best_models_map.get(str(collection_id))
-        if best_model_filename:
-            candidate_path = os.path.join(classifier_dir, best_model_filename)
-            if os.path.exists(candidate_path):
-                latest_file = candidate_path
-                logger.info(f"ModelLoader: Using best model '{os.path.basename(latest_file)}' for collection {collection_id} from config.")
+        best_model_info = _best_models_map.get(str(collection_id))
+        
+        # Handle both old format (string) and new format (dict)
+        if best_model_info:
+            if isinstance(best_model_info, str):
+                # Old format: just a filename
+                best_model_filename = best_model_info
+            elif isinstance(best_model_info, dict):
+                # New format: dict with 'model_file' key
+                best_model_filename = best_model_info.get('model_file')
             else:
-                logger.warning(f"ModelLoader: Best model '{best_model_filename}' for collection {collection_id} not found in filesystem. Falling back to date-based search.")
+                best_model_filename = None
+                
+            if best_model_filename:
+                candidate_path = os.path.join(classifier_dir, best_model_filename)
+                if os.path.exists(candidate_path):
+                    latest_file = candidate_path
+                    logger.info(f"ModelLoader: Using best model '{os.path.basename(latest_file)}' for collection {collection_id} from config.")
+                else:
+                    logger.warning(f"ModelLoader: Best model '{best_model_filename}' for collection {collection_id} not found in filesystem. Falling back to date-based search.")
 
         # 2. If not found via config, fall back to searching for the latest dated file
         if not latest_file:
@@ -253,6 +265,44 @@ def get_classifier_model(collection_id: int):
         logger.debug(f"ModelLoader: Using cached classifier model for collection ID {collection_id}.")
     
     return _loaded_models[cache_key]
+
+
+def get_classifier_metadata(collection_id: int) -> dict:
+    """
+    Retrieves metadata for a classifier from best_models.json.
+    
+    Returns dict with keys: model_file, derivative_type, embedding_type, dimensionality
+    Raises FileNotFoundError if no metadata exists for collection_id.
+    """
+    _load_best_models_map()  # Ensure the map is loaded
+    
+    collection_key = str(collection_id)
+    if collection_key not in _best_models_map:
+        raise FileNotFoundError(f"No classifier metadata found for collection_id {collection_id}")
+    
+    metadata = _best_models_map[collection_key]
+    
+    # Handle old format (string) - default to CLIP on whole_image for backward compatibility
+    if isinstance(metadata, str):
+        logger.warning(f"ModelLoader: Classifier for collection {collection_id} uses old metadata format (string). Defaulting to CLIP whole_image.")
+        return {
+            'model_file': metadata,
+            'derivative_type': 'whole_image',
+            'embedding_type': 'embed_clip_vit_b_32',
+            'dimensionality': 512
+        }
+    
+    # New format should be a dict
+    if not isinstance(metadata, dict):
+        raise ValueError(f"Invalid metadata format for collection {collection_id}: expected dict, got {type(metadata)}")
+    
+    # Validate required fields
+    required_fields = ['model_file', 'derivative_type', 'embedding_type']
+    missing_fields = [f for f in required_fields if f not in metadata]
+    if missing_fields:
+        raise ValueError(f"Metadata for collection {collection_id} missing required fields: {missing_fields}")
+    
+    return metadata
 
 
 def preload_all_models(clip_model_name: str):
