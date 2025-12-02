@@ -44,52 +44,34 @@ The `/collections.json` endpoint now includes collection focus metadata with `de
 
 ## Phase 3: Image_Embed Runtime Enhancement
 
-### Task 3.1: Add Metadata Loading in model_loader
+### ✅ Task 3.1: COMPLETED - Add Metadata Loading in model_loader
 **File:** `image_embed/app/core/model_loader.py`
 
-- [ ] Add `get_classifier_metadata(collection_id)` function
-- [ ] Load and parse `best_models.json`
-- [ ] Return metadata dict for collection_id
-- [ ] Raise FileNotFoundError if collection not found
-- [ ] Add backward compatibility for old string format (optional)
+- [x] Add `get_classifier_metadata(collection_id)` function
+- [x] Load and parse `best_models.json`
+- [x] Return metadata dict for collection_id
+- [x] Raise FileNotFoundError if collection not found
+- [x] Add backward compatibility for old string format
 
-**Acceptance:**
-- Function loads metadata correctly
-- Raises appropriate exceptions
-- Tests pass (unit tests for this function)
-
-### Task 3.2: Create Enhanced Classification Service
+### ✅ Task 3.2: COMPLETED - Create Enhanced Classification Service
 **File:** `image_embed/app/services/classification_service.py`
 
-- [ ] Add `classify_embedding_from_image()` function
-- [ ] Fetch metadata using model_loader
-- [ ] Map derivative_type to target (whole_image/person/face)
-- [ ] Handle detection based on target
-- [ ] Generate correct embedding type (CLIP or DINO)
-- [ ] Cache embeddings in shared_context
-- [ ] Call existing `classify_embedding()` function
+- [x] Add `classify_embedding_from_image()` function
+- [x] Fetch metadata using model_loader
+- [x] Map derivative_type to target (whole_image/person/face)
+- [x] Handle detection based on target
+- [x] Generate correct embedding type (CLIP or DINO)
+- [x] Cache embeddings in shared_context
+- [x] Call existing `classify_embedding()` function
 
-**Acceptance:**
-- Function generates CLIP embeddings for CLIP metadata
-- Function generates DINO embeddings for DINO metadata
-- Detection logic works correctly for all targets
-- Embeddings cached to avoid redundant computation
-- Tests pass
-
-### Task 3.3: Update Main API Endpoint
+### ✅ Task 3.3: COMPLETED - Update Main API Endpoint
 **File:** `image_embed/main.py`
 
-- [ ] Update `classify` operation in `_perform_analysis()`
-- [ ] Replace direct `get_embedding_for_target()` call
-- [ ] Call new `classify_embedding_from_image()` instead
-- [ ] Remove old target/face_context handling from classify block
-- [ ] Update error handling
-
-**Acceptance:**
-- Classification uses new function
-- Timing stats still captured correctly
-- Error messages remain helpful
-- No breaking changes to API response format
+- [x] Update `classify` operation in `_perform_analysis()`
+- [x] Replace direct `get_embedding_for_target()` call
+- [x] Call new `classify_embedding_from_image()` instead
+- [x] Update error handling
+- [x] Timing stats still captured correctly
 
 ### Task 3.4: Add Tests
 **File:** `image_embed/tests/test_unit/test_classification_service.py`
