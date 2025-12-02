@@ -1,6 +1,7 @@
 # Advanced Image Analysis API
 
 [ ![CircleCI](https://dl.circleci.com/status-badge/img/gh/timlawrenz/image_embed/tree/main.svg?style=svg) ](https://dl.circleci.com/status-badge/redirect/gh/timlawrenz/image_embed/tree/main)
+
 An advanced FastAPI service that performs various analyses on images. You provide an image—either via a URL or by direct file upload—and a list of analysis tasks, and the API returns the results for each task.
 
 ## Features
@@ -11,7 +12,10 @@ An advanced FastAPI service that performs various analyses on images. You provid
 *   Performs requested operations, which can include:
     *   **Human Detection:** Detects the most prominent person using Faster R-CNN.
     *   **Face Detection:** Detects the most prominent face using MTCNN.
-    *   **CLIP Embedding:** Generates image embeddings using a specified CLIP model (default: "ViT-B/32") on the whole image, a detected person, or a detected face.
+    *   **CLIP Embedding:** Generates semantic image embeddings using a specified CLIP model (default: "ViT-B/32") on the whole image, a detected person, or a detected face.
+    *   **DINOv2 Embedding:** Generates visual feature embeddings optimized for similarity search based on composition, color, and texture.
+    *   **Image Classification:** Uses trained binary classifiers to determine if an image belongs to specific collections.
+    *   **Image Captioning:** Generates natural language descriptions of images using pre-trained captioning models.
 *   For operations involving cropping (e.g., embedding a detected face), the API returns:
     *   The primary result of the operation (e.g., embedding vector).
     *   The bounding box coordinates used for the crop.
@@ -176,10 +180,17 @@ Provides a list of available analysis operations that can be used in the `tasks`
 
 ## Setup and Installation
 
-1.  **Clone the repository (if applicable):**
+### Requirements
+
+*   Python 3.12
+*   GPU with CUDA support (recommended for performance, but CPU fallback available)
+
+### Installation Steps
+
+1.  **Clone the repository:**
     ```bash
-    git clone <your-repo-url>
-    cd <your-repo-directory>
+    git clone https://github.com/timlawrenz/image_embed.git
+    cd image_embed
     ```
 
 2.  **Create a virtual environment (recommended):**
@@ -192,6 +203,15 @@ Provides a list of available analysis operations that can be used in the `tasks`
     ```bash
     pip install -r requirements.txt
     ```
+
+4.  **(Optional) Train classifiers:**
+    
+    If you want to use the classification feature, train the binary classifiers:
+    ```bash
+    python scripts/train_classifiers.py
+    ```
+    
+    This will download training data and create models in the `trained_classifiers/` directory.
 
 ## Running the Service
 
@@ -309,17 +329,67 @@ python scripts/caption_folder.py /path/to/your/image_folder
     python scripts/caption_folder.py /path/to/your/image_folder --force
     ```
 
-## CLIP Model and Device Management
+### `scripts/train_classifiers.py`
 
-The service currently uses the `"ViT-B/32"` CLIP model by default for the `embed_clip_vit_b_32` operation. This default is specified by the `MODEL_NAME_CLIP` variable in `main.py`. You can change this variable to use a different default CLIP model (e.g., `"ViT-L/14"`, `"RN50x16"`).
+This script trains binary classifiers for image collections using CLIP embeddings. It's part of the offline training pipeline that enables the `/classify` operation in the API.
 
-Models (including CLIP and detection models) are loaded on-demand and cached by the `app.core.model_loader` module. This module also handles the device selection, attempting to use a CUDA-enabled GPU if available; otherwise, it falls back to the CPU.
+**How it works:**
 
-Keep in mind that larger models might offer better accuracy but will require more computational resources (CPU/GPU and memory) and may be slower to load initially.
+1. Fetches collection metadata from `https://crawlr.lawrenz.com/collections.json`
+2. For each collection, downloads training data (pre-computed CLIP embeddings with labels)
+3. Trains a LogisticRegression classifier with balanced class weights to handle imbalanced datasets
+4. Evaluates all model versions (including previous ones) on a held-out test set (20% split)
+5. Ranks models by macro precision and keeps the top 10 per collection
+6. Saves the best model with a compatible pickle protocol for production use
+7. Generates `trained_classifiers/best_models.json` mapping collection IDs to their best models
+
+**Usage:**
+
+```bash
+python scripts/train_classifiers.py
+```
+
+The script will create timestamped model files in the `trained_classifiers/` directory:
+- `collection_{id}_classifier_{timestamp}.pkl` - Individual model versions
+- `collection_{id}_compatible_classifier.pkl` - Best model for production
+- `best_models.json` - Configuration mapping collection IDs to best models
+
+**Key Features:**
+
+*   **Model Versioning:** Each training run creates a timestamped model for comparison
+*   **Bake-off Evaluation:** All versions compete on the latest test data
+*   **Automatic Pruning:** Keeps only the top 10 models per collection to manage disk space
+*   **Imbalanced Data Handling:** Uses `class_weight="balanced"` for better performance on skewed datasets
+*   **JSON Extraction:** Handles HTML-wrapped responses from the training data API
+
+## Model and Device Management
+
+The service uses multiple pre-trained models for different tasks:
+
+*   **CLIP (ViT-B/32):** Default model for semantic embeddings. Can be changed via the `MODEL_NAME_CLIP` variable in `main.py` to other CLIP variants (e.g., `"ViT-L/14"`, `"RN50x16"`).
+*   **DINOv2:** Visual embedding model for similarity search based on composition, color, and texture features.
+*   **Faster R-CNN:** Person detection using TorchVision's pre-trained model.
+*   **MTCNN:** Face detection via facenet-pytorch.
+*   **Image Captioning Models:** Transformers-based models for generating image descriptions.
+*   **Binary Classifiers:** Scikit-learn LogisticRegression models trained on CLIP embeddings, stored in `trained_classifiers/`.
+
+All models are loaded on-demand and cached by the `app.core.model_loader` module. This module handles device selection automatically:
+*   **GPU (CUDA):** Used if available for significantly better performance
+*   **CPU:** Fallback option if no GPU is detected
+
+Models are pre-loaded at application startup via the lifespan manager to minimize first-request latency. Keep in mind that larger models offer better accuracy but require more computational resources (CPU/GPU and memory) and may be slower to load initially.
 
 ## Logging
 
-The application uses Python's built-in `logging` module. Basic logging is configured to output INFO level messages to the console.
+The application uses Python's built-in `logging` module configured to output INFO level messages to the console. 
+
+The API includes middleware that logs:
+*   Request timing (duration in seconds)
+*   Worker process ID (PID)
+*   Request start and finish events
+*   Detailed timing breakdowns for different operations (detection, embedding, classification, description)
+
+This makes it easy to monitor performance and troubleshoot issues in production.
 
 ## To-Do / Potential Improvements
 
@@ -328,3 +398,21 @@ The application uses Python's built-in `logging` module. Basic logging is config
 *   Add more robust error handling and input validation.
 *   Add authentication.
 *   Containerize the application (e.g., using Docker).
+
+## Tech Stack
+
+*   **Language:** Python 3.12
+*   **Framework:** FastAPI with Uvicorn
+*   **ML/CV Libraries:** PyTorch, TorchVision, OpenAI CLIP, DINOv2 (via Transformers), facenet-pytorch (MTCNN), scikit-learn
+*   **Data Processing:** Pillow, NumPy
+*   **Testing:** pytest
+*   **CI/CD:** CircleCI
+
+## Contributing
+
+This project uses conventional commits for Git history:
+*   `feat:` for new features
+*   `refactor:` for code restructuring
+*   `docs:` for documentation updates
+
+See `openspec/project.md` for detailed project conventions and architecture patterns.
