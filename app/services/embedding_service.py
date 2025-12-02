@@ -48,7 +48,7 @@ def get_clip_embedding(
 
 def get_dino_embedding(
     pil_image_rgb: Image.Image,
-    dino_model_name: str = "dinov2_vitb14",
+    dino_model_name: str = "vit_base_patch14_dinov2.lvd142m",
     crop_bbox: Optional[List[int]] = None
 ) -> Tuple[List[float], Optional[str], Optional[List[int]]]:
     

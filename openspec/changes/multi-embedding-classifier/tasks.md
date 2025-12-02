@@ -2,31 +2,20 @@
 
 ## Phase 1: Crawlr API Enhancement
 
-### Task 1.1: Add CollectionFocus Helper Methods
-**File:** `crawlr/app/models/collection_focus.rb`
-
-- [ ] Add `derivative_type_name` method that returns `derivative_type&.name`
-- [ ] Add `embedding_type_name` method that returns `embedding_type&.name`
-- [ ] Add tests for these methods in `spec/models/collection_focus_spec.rb`
-
-**Acceptance:**
-- Methods return correct string values when associations exist
-- Methods return nil when associations are missing
-- Tests pass
-
-### Task 1.2: Update Collections API Endpoint
+### Task 1.1: Update Collections API Endpoint
 **File:** `crawlr/app/controllers/collections_controller.rb`
 
-- [ ] Modify `index` action JSON format to include collection_focus
-- [ ] Include `derivative_type_name` and `embedding_type_name` methods
+- [ ] Modify `index` action JSON format to include existing collection_focus association
+- [ ] Include nested derivative_type and embedding_type (already associated)
 - [ ] Update/add API tests in `spec/requests/collections_request_spec.rb`
 
 **Acceptance:**
 - `/collections.json` returns focus metadata
-- Response includes `collection_focus` with `derivative_type_name` and `embedding_type_name`
+- Response includes nested `collection_focus.derivative_type.name` and `collection_focus.embedding_type.name`
 - Existing clients not broken (only adds data, doesn't remove)
+- No model changes needed - just controller JSON serialization
 
-### Task 1.3: Deploy Crawlr Changes
+### Task 1.2: Deploy Crawlr Changes
 - [ ] Create PR for crawlr changes
 - [ ] Get code review
 - [ ] Deploy to production
@@ -37,13 +26,15 @@
 ### Task 2.1: Update Training Script to Fetch Metadata
 **File:** `image_embed/scripts/train_classifiers.py`
 
-- [ ] Modify `fetch_collections()` to extract collection_focus from response
+- [ ] Modify `fetch_collections()` to extract nested collection_focus from response
+- [ ] Extract `derivative_type.name` and `embedding_type.name` from nested structure
 - [ ] Add validation for derivative_type and embedding_type presence
 - [ ] Log warnings for collections missing focus metadata
 - [ ] Update `train_and_save_model()` signature to accept metadata parameters
 
 **Acceptance:**
 - Script fetches collections with focus metadata
+- Correctly navigates nested JSON: `collection['collection_focus']['derivative_type']['name']`
 - Skips collections without focus (with warning log)
 - Passes metadata to training function
 
@@ -216,8 +207,8 @@ If issues arise:
 4. Redeploy when ready
 
 ### Estimated Timeline
-- Phase 1: 1-2 hours
+- Phase 1: 30 minutes - 1 hour (just controller change, no models)
 - Phase 2: 2-3 hours
 - Phase 3: 4-6 hours (includes testing)
 - Phase 4: 1-2 hours
-- Total: ~8-13 hours of development time
+- Total: ~7.5-12 hours of development time

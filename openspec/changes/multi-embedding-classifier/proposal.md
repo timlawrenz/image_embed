@@ -49,9 +49,16 @@ Store embedding type metadata with classifiers and use it to generate the correc
 
 ### Part 1: Enhance Crawlr API
 
+**Status:** The data already exists in crawlr models! We just need to expose it via the API.
+
 **File:** `crawlr/app/controllers/collections_controller.rb`
 
-Enhance `/collections.json` endpoint to include focus metadata:
+The `/collections.json` endpoint currently returns:
+```ruby
+format.json { render json: @collections.as_json(only: %i[id name]) }
+```
+
+Update it to include the existing collection_focus associations:
 
 ```ruby
 format.json { 
@@ -59,26 +66,14 @@ format.json {
     only: [:id, :name],
     include: {
       collection_focus: {
-        only: [],
-        methods: [:derivative_type_name, :embedding_type_name]
+        include: {
+          derivative_type: { only: [:name] },
+          embedding_type: { only: [:name] }
+        }
       }
     }
   )
 }
-```
-
-**File:** `crawlr/app/models/collection_focus.rb`
-
-Add helper methods:
-
-```ruby
-def derivative_type_name
-  derivative_type&.name
-end
-
-def embedding_type_name
-  embedding_type&.name
-end
 ```
 
 **Expected JSON output:**
@@ -88,12 +83,19 @@ end
     "id": 42,
     "name": "Portraits",
     "collection_focus": {
-      "derivative_type_name": "prominent_face",
-      "embedding_type_name": "embed_dino_v2"
+      "id": 123,
+      "derivative_type": {
+        "name": "prominent_face"
+      },
+      "embedding_type": {
+        "name": "embed_dino_v2"
+      }
     }
   }
 ]
 ```
+
+**Note:** No model changes needed - all associations already exist!
 
 ### Part 2: Store Metadata During Training
 

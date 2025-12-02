@@ -126,7 +126,7 @@ def get_face_detection_model():
     return _loaded_models[cache_key]
 
 
-def get_dino_model_and_processor(model_name: str = "dinov2_vitb14"):
+def get_dino_model_and_processor(model_name: str = "vit_base_patch14_dinov2.lvd142m"):
     """
     Loads and caches a DINOv2 model and its processor from timm.
     """
