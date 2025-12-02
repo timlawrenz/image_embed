@@ -12,33 +12,22 @@ The `/collections.json` endpoint now includes collection focus metadata with `de
 
 ## Phase 2: Image_Embed Training Enhancement
 
-### Task 2.1: Update Training Script to Fetch Metadata
+### ✅ Task 2.1: COMPLETED - Update Training Script to Fetch Metadata
 **File:** `image_embed/scripts/train_classifiers.py`
 
-- [ ] Modify `fetch_collections()` to extract collection_focus from response
-- [ ] Extract `derivative_type_name` and `embedding_type_name` from JSON
-- [ ] Add validation for derivative_type and embedding_type presence
-- [ ] Log warnings for collections missing focus metadata
-- [ ] Update `train_and_save_model()` signature to accept metadata parameters
+- [x] Modify `fetch_collections()` to extract collection_focus from response
+- [x] Extract `derivative_type_name` and `embedding_type_name` from JSON
+- [x] Add validation for derivative_type and embedding_type presence
+- [x] Log warnings for collections missing focus metadata
+- [x] Update `train_and_save_model()` signature to accept metadata parameters
 
-**Acceptance:**
-- Script fetches collections with focus metadata
-- Correctly extracts: `collection['collection_focus']['derivative_type_name']`
-- Skips collections without focus (with warning log)
-- Passes metadata to training function
-
-### Task 2.2: Store Metadata in best_models.json
+### ✅ Task 2.2: COMPLETED - Store Metadata in best_models.json
 **File:** `image_embed/scripts/train_classifiers.py`
 
-- [ ] Change `best_models_map` structure from `{id: filename}` to `{id: {metadata}}`
-- [ ] Include: `model_file`, `derivative_type`, `embedding_type`, `dimensionality`
-- [ ] Infer dimensionality from training data shape
-- [ ] Update JSON writing logic in `main()` function
-
-**Acceptance:**
-- `best_models.json` has new nested structure
-- All required metadata fields present for each collection
-- Dimensionality matches embedding vector length
+- [x] Change `best_models_map` structure from `{id: filename}` to `{id: {metadata}}`
+- [x] Include: `model_file`, `derivative_type`, `embedding_type`, `dimensionality`
+- [x] Infer dimensionality from training data shape
+- [x] Update JSON writing logic in `main()` function
 
 ### Task 2.3: Run Training and Verify Output
 - [ ] Run: `python scripts/train_classifiers.py`
