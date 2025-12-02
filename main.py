@@ -347,6 +347,14 @@ async def analyze_image(request: ImageAnalysisRequest):
     req_start_time = time.time()
     image_url_str = str(request.image_url)
     logger.info(f"Received analysis request for URL: {image_url_str} with {len(request.tasks)} tasks.")
+    
+    # Log task summary
+    task_summary = {}
+    for task in request.tasks:
+        task_type = task.type
+        task_summary[task_type] = task_summary.get(task_type, 0) + 1
+    summary_str = ", ".join([f"{count}x {task_type}" for task_type, count in sorted(task_summary.items())])
+    logger.info(f"Task breakdown: {summary_str}")
 
     download_start_time = time.time()
     try:
@@ -387,6 +395,14 @@ async def analyze_image_upload(
     """
     req_start_time = time.time()
     logger.info(f"Received analysis request for uploaded file: {image_file.filename}")
+    
+    # Log task summary
+    task_summary = {}
+    for task_data in tasks_data:
+        task_type = task_data.get('type', 'unknown')
+        task_summary[task_type] = task_summary.get(task_type, 0) + 1
+    summary_str = ", ".join([f"{count}x {task_type}" for task_type, count in sorted(task_summary.items())])
+    logger.info(f"Task breakdown: {summary_str}")
 
     try:
         tasks_data = json.loads(tasks_json)
