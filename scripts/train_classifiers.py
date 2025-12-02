@@ -46,7 +46,7 @@ def find_existing_models(collection_id: int):
 
 
 def fetch_collections():
-    """Fetches the list of available collections."""
+    """Fetches the list of available collections with their focus metadata."""
     logging.info(f"Fetching collections from {COLLECTIONS_ENDPOINT}...")
     try:
         response = requests.get(COLLECTIONS_ENDPOINT)
@@ -54,6 +54,19 @@ def fetch_collections():
         cleaned_text = clean_json_response(response.text)
         collections = json.loads(cleaned_text)
         logging.info(f"Found {len(collections)} collections.")
+        
+        # Extract and validate collection_focus metadata
+        for collection in collections:
+            focus = collection.get('collection_focus')
+            if focus:
+                collection['derivative_type'] = focus.get('derivative_type_name')
+                collection['embedding_type'] = focus.get('embedding_type_name')
+                logging.debug(f"Collection {collection.get('id')}: derivative_type={collection['derivative_type']}, embedding_type={collection['embedding_type']}")
+            else:
+                collection['derivative_type'] = None
+                collection['embedding_type'] = None
+                logging.warning(f"Collection {collection.get('id')} '{collection.get('name')}' has no focus defined.")
+        
         return collections
     except requests.exceptions.RequestException as e:
         logging.error(f"Error fetching collections: {e}")
@@ -81,28 +94,39 @@ def fetch_training_data(collection_id: int):
         logging.debug(f"Response text was: {response.text}")
         return None
 
-def train_and_save_model(collection_id: int, collection_name: str, training_data: list):
+def train_and_save_model(collection_id: int, collection_name: str, training_data: list, derivative_type: str, embedding_type: str):
     """
     Trains a new classifier, saves it, and then evaluates all available versions
     for the collection (including the new one) to identify the best-performing one.
+    
+    Args:
+        collection_id: The ID of the collection
+        collection_name: The name of the collection
+        training_data: List of dicts with 'embedding' and 'label' keys
+        derivative_type: The derivative type (e.g., 'whole_image', 'prominent_person', 'prominent_face')
+        embedding_type: The embedding type (e.g., 'embed_clip_vit_b_32', 'embed_dino_v2')
+    
+    Returns:
+        Dict with metadata about the best model, or None if training failed
     """
     if not training_data:
         logging.warning(f"No training data for collection {collection_name} (ID: {collection_id}). Skipping.")
-        return
+        return None
 
     logging.info(f"Processing collection: '{collection_name}' (ID: {collection_id})")
+    logging.info(f"  Focus: {embedding_type} on {derivative_type}")
 
     try:
         X = [item['embedding'] for item in training_data]
         y = [item['label'] for item in training_data]
     except KeyError as e:
         logging.error(f"Training data for collection {collection_id} is malformed. Missing key: {e}")
-        return
+        return None
 
     # A model cannot be trained if all data belongs to a single class.
     if len(set(y)) < 2:
         logging.warning(f"Collection {collection_id} has only one class ({set(y)}). Cannot train a model. Skipping.")
-        return
+        return None
 
     # Split data into a training set and a held-out test set for the bake-off.
     X_train, X_test, y_train, y_test = train_test_split(
@@ -153,7 +177,7 @@ def train_and_save_model(collection_id: int, collection_name: str, training_data
 
     if not results:
         logging.error("Bake-off failed: no models could be evaluated.")
-        return
+        return None
 
     # Sort results by precision, descending.
     results.sort(key=lambda x: x['macro_precision'], reverse=True)
@@ -194,7 +218,16 @@ def train_and_save_model(collection_id: int, collection_name: str, training_data
     except Exception as e:
         logging.error(f"Could not save compatible model file '{compatible_filename}': {e}")
 
-    return best_model_filename
+    # Infer dimensionality from training data
+    dimensionality = len(X[0]) if X else None
+    
+    # Return metadata about the best model
+    return {
+        'model_file': best_model_filename,
+        'derivative_type': derivative_type,
+        'embedding_type': embedding_type,
+        'dimensionality': dimensionality
+    }
 
 def main():
     """Main function to run the training pipeline."""
@@ -213,16 +246,29 @@ def main():
     for collection in collections:
         collection_id = collection.get('id')
         collection_name = collection.get('name')
+        derivative_type = collection.get('derivative_type')
+        embedding_type = collection.get('embedding_type')
 
         if not isinstance(collection_id, int) or not isinstance(collection_name, str):
             logging.warning(f"Skipping invalid collection entry: {collection}")
             continue
+        
+        # Skip collections without focus metadata
+        if not derivative_type or not embedding_type:
+            logging.warning(f"Skipping collection '{collection_name}' (ID: {collection_id}) - missing focus metadata.")
+            continue
 
         training_data = fetch_training_data(collection_id)
         if training_data:
-            best_model_file = train_and_save_model(collection_id, collection_name, training_data)
-            if best_model_file:
-                best_models_map[str(collection_id)] = best_model_file
+            model_metadata = train_and_save_model(
+                collection_id, 
+                collection_name, 
+                training_data,
+                derivative_type,
+                embedding_type
+            )
+            if model_metadata:
+                best_models_map[str(collection_id)] = model_metadata
         else:
             logging.warning(f"Could not retrieve or process training data for '{collection_name}' (ID: {collection_id}).")
 
