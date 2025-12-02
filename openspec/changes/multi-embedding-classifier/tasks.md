@@ -29,16 +29,18 @@ The `/collections.json` endpoint now includes collection focus metadata with `de
 - [x] Infer dimensionality from training data shape
 - [x] Update JSON writing logic in `main()` function
 
-### Task 2.3: Run Training and Verify Output
-- [ ] Run: `python scripts/train_classifiers.py`
-- [ ] Inspect `trained_classifiers/best_models.json` structure
-- [ ] Verify metadata for at least one CLIP and one DINO collection
-- [ ] Commit updated `best_models.json` to git
+### ✅ Task 2.3: COMPLETED - Run Training and Verify Output
+- [x] Run: `python scripts/train_classifiers.py`
+- [x] Inspect `trained_classifiers/best_models.json` structure
+- [x] Verify metadata for at least one CLIP and one DINO collection
+- [x] Note: trained_classifiers/ is in .gitignore (generated artifact, not committed)
 
 **Acceptance:**
-- Training completes successfully
-- Metadata format matches spec
-- File committed to repository
+- Training completed successfully
+- Metadata format matches spec (verified):
+  - Collection #15 (boxy-dino): embed_dino_v2 on prominent_person, 768 dims
+  - Collection #16: embed_dino_v2 on prominent_face, 768 dims  
+  - Collection #3 (freckles): embed_clip_vit_b_32 on prominent_face, 512 dims
 
 ## Phase 3: Image_Embed Runtime Enhancement
 
