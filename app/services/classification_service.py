@@ -148,7 +148,8 @@ def classify_embedding_from_image(
             from main import MODEL_NAME_CLIP
             embedding_list, _, _ = get_clip_embedding(pil_image, MODEL_NAME_CLIP, crop_box)
         elif embedding_type == 'embed_dino_v2':
-            embedding_list, _, _ = get_dino_embedding(pil_image, crop_box)
+            # Use default DINO model name
+            embedding_list, _, _ = get_dino_embedding(pil_image, crop_bbox=crop_box)
         else:
             raise ValueError(f"Unsupported embedding_type '{embedding_type}' for collection {collection_id}")
         
