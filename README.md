@@ -183,7 +183,16 @@ Provides a list of available analysis operations that can be used in the `tasks`
 ### Requirements
 
 *   Python 3.12
-*   GPU with CUDA support (recommended for performance, but CPU fallback available)
+*   GPU acceleration (recommended):
+    *   **NVIDIA:** CUDA
+    *   **AMD (ROCm/HIP):** ROCm (e.g. Strix Halo / gfx1151)
+    *   CPU fallback is supported
+
+On AMD, install a recent ROCm stack (e.g. ROCm 7.1.1) and verify the GPU is visible before installing Python deps:
+```bash
+rocminfo | head
+```
+(You should see the GPU agent like `gfx1151` and `ROCk module is loaded`.)
 
 ### Installation Steps
 
@@ -200,6 +209,17 @@ Provides a list of available analysis operations that can be used in the `tasks`
     ```
 
 3.  **Install dependencies:**
+
+    **AMD ROCm (Strix Halo / gfx1151):**
+    ```bash
+    # installs ROCm-enabled torch/torchvision/torchaudio + the rest of deps
+    pip install -r requirements-rocm.txt
+
+    # quick sanity check (expects a non-zero device count)
+    python -c "import torch; print('torch', torch.__version__, 'hip', torch.version.hip); print('device_count', torch.cuda.device_count()); print('device0', torch.cuda.get_device_name(0) if torch.cuda.device_count() else None)"
+    ```
+
+    **Default (CPU-only PyTorch):**
     ```bash
     pip install -r requirements.txt
     ```
@@ -374,8 +394,12 @@ The service uses multiple pre-trained models for different tasks:
 *   **Binary Classifiers:** Scikit-learn LogisticRegression models trained on CLIP embeddings, stored in `trained_classifiers/`.
 
 All models are loaded on-demand and cached by the `app.core.model_loader` module. This module handles device selection automatically:
-*   **GPU (CUDA):** Used if available for significantly better performance
+*   **GPU (CUDA / ROCm-HIP):** Used if available for significantly better performance
 *   **CPU:** Fallback option if no GPU is detected
+
+You can control this behavior via environment variables:
+* `IMAGE_EMBED_DEVICE=cuda|cpu` to force a specific device.
+* `IMAGE_EMBED_REQUIRE_GPU=1` to fail startup if no GPU is available (prevents accidentally running on CPU in production).
 
 Models are pre-loaded at application startup via the lifespan manager to minimize first-request latency. Keep in mind that larger models offer better accuracy but require more computational resources (CPU/GPU and memory) and may be slower to load initially.
 

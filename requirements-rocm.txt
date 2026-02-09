@@ -1,0 +1,8 @@
+# Install ROCm-enabled PyTorch first by pointing pip at the PyTorch ROCm wheel index.
+# Pick the ROCm wheel index that matches the PyTorch release you want (example below).
+# Note: This is *not* the same thing as your installed ROCm driver/runtime version.
+
+--index-url https://download.pytorch.org/whl/rocm6.2
+--extra-index-url https://pypi.org/simple
+
+-r requirements.txt

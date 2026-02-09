@@ -398,11 +398,6 @@ async def analyze_image_upload(
     
     # Log task summary
     task_summary = {}
-    for task_data in tasks_data:
-        task_type = task_data.get('type', 'unknown')
-        task_summary[task_type] = task_summary.get(task_type, 0) + 1
-    summary_str = ", ".join([f"{count}x {task_type}" for task_type, count in sorted(task_summary.items())])
-    logger.info(f"Task breakdown: {summary_str}")
 
     try:
         tasks_data = json.loads(tasks_json)

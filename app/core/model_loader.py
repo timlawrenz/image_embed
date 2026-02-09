@@ -22,9 +22,58 @@ _loaded_models = {}
 _best_models_map = None
 
 # --- Device Configuration ---
+
+def _log_accelerator_info() -> None:
+    # On ROCm builds, the accelerator is still exposed via torch.cuda (HIP backend).
+    try:
+        hip_version = getattr(torch.version, "hip", None)
+        cuda_version = getattr(torch.version, "cuda", None)
+        is_rocm = bool(hip_version)
+
+        logger.info(
+            "ModelLoader: torch=%s cuda=%s hip=%s backend=%s",
+            getattr(torch, "__version__", "unknown"),
+            cuda_version,
+            hip_version,
+            "ROCm" if is_rocm else "CUDA",
+        )
+
+        device_count = torch.cuda.device_count()
+        logger.info("ModelLoader: torch.cuda.device_count()=%s", device_count)
+        if device_count > 0:
+            name = torch.cuda.get_device_name(0)
+            logger.info("ModelLoader: device[0]=%s", name)
+            try:
+                props = torch.cuda.get_device_properties(0)
+                gcn = getattr(props, "gcnArchName", None)  # ROCm-only
+                if gcn:
+                    logger.info("ModelLoader: device[0].gcnArchName=%s", gcn)
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning("ModelLoader: Unable to query accelerator info: %s", e)
+
+
 try:
-    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info(f"ModelLoader: Using device: {DEVICE}")
+    device_override = os.getenv("IMAGE_EMBED_DEVICE")
+    if device_override in {"cuda", "cpu"}:
+        DEVICE = device_override
+        logger.info("ModelLoader: Using device override IMAGE_EMBED_DEVICE=%s", DEVICE)
+    else:
+        if device_override:
+            logger.warning(
+                "ModelLoader: Ignoring unsupported IMAGE_EMBED_DEVICE=%s (expected 'cuda' or 'cpu')",
+                device_override,
+            )
+        DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info(f"ModelLoader: Using device: {DEVICE}")
+
+    require_gpu = os.getenv("IMAGE_EMBED_REQUIRE_GPU", "").strip().lower() in {"1", "true", "yes"}
+    if require_gpu and DEVICE != "cuda":
+        raise RuntimeError("GPU required (IMAGE_EMBED_REQUIRE_GPU=1) but torch.cuda.is_available() is false")
+
+    if DEVICE == "cuda":
+        _log_accelerator_info()
 except Exception as e:
     logger.error(f"ModelLoader: Error determining Torch device, defaulting to CPU. Error: {e}")
     DEVICE = "cpu"
