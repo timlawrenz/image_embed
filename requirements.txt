@@ -1,6 +1,7 @@
 facenet-pytorch
 fastapi
-openai-clip
+# openai-clip
+open_clip_torch
 Pillow==11.2.1
 pydantic
 numpy

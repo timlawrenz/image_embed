@@ -2,7 +2,7 @@
 # Pick the ROCm wheel index that matches the PyTorch release you want (example below).
 # Note: This is *not* the same thing as your installed ROCm driver/runtime version.
 
---index-url https://download.pytorch.org/whl/rocm6.2
+--index-url https://rocm.nightlies.amd.com/v2/gfx1151/
 --extra-index-url https://pypi.org/simple
 
 -r requirements.txt

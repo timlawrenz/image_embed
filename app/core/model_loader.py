@@ -1,6 +1,6 @@
 import logging
 import torch
-import clip
+import open_clip
 import torchvision
 from facenet_pytorch import MTCNN
 import os
@@ -114,7 +114,12 @@ def get_clip_model_and_preprocess(model_name: str):
     if cache_key_model not in _loaded_models:
         logger.info(f"ModelLoader: Loading CLIP model '{model_name}' on {DEVICE}...")
         try:
-            model, preprocess = clip.load(model_name, device=DEVICE, jit=False)
+            model_name_cleaned = model_name.replace("/", "-")
+            model, _, preprocess = open_clip.create_model_and_transforms(
+                model_name_cleaned, 
+                pretrained='openai', 
+                device=DEVICE
+            )
             _loaded_models[cache_key_model] = model
             _loaded_models[cache_key_preprocess] = preprocess
             logger.info(f"ModelLoader: CLIP model '{model_name}' loaded and cached successfully.")
