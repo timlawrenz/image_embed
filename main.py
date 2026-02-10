@@ -275,14 +275,26 @@ def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> 
                 try:
                     from app.services.classification_service import classify_embedding_from_image
                     current_result_data = classify_embedding_from_image(
-                        pil_image_rgb, 
+                        pil_image_rgb,
                         int(collection_id),
                         shared_context,
-                        timing_stats
+                        timing_stats,
                     )
-                    # Classification doesn't return cropped image data
+
+                    # Classification doesn't return a cropped image, but it may rely on
+                    # a detected region; expose the bbox used (if any) for client context.
                     current_cropped_image_base64 = None
-                    current_cropped_image_bbox = None
+                    current_cropped_image_bbox = shared_context.get("prominent_face_bbox")
+                    if current_cropped_image_bbox is None:
+                        current_cropped_image_bbox = shared_context.get("prominent_person_bbox")
+
+                    # Keep local cache flags in sync with shared_context, since
+                    # classify_embedding_from_image may populate these.
+                    if "prominent_person_bbox" in shared_context:
+                        person_detection_done = True
+                    if "prominent_face_bbox" in shared_context:
+                        face_detection_done = True
+
                 except FileNotFoundError as e:
                     raise ValueError(f"Classifier not found for collection_id {collection_id}.") from e
                 timing_stats["classification"] += time.time() - classification_start

@@ -10,11 +10,30 @@ def test_analyze_image_classification_on_face(client, mocker):
     # not where they are defined. This is a common requirement when using mock.
     mocker.patch("main.download_image", return_value=Image.new('RGB', (800, 600)))
 
-    # Mock the service layer functions that the endpoint calls
-    mock_get_person = mocker.patch("main.get_prominent_person_bbox", return_value=[100, 50, 300, 250])
-    mock_get_face = mocker.patch("main.get_prominent_face_bbox_in_region", return_value=[110, 70, 160, 130])
-    mock_get_embedding = mocker.patch("main.get_clip_embedding", return_value=([0.1]*512, "base64_string", [110, 70, 160, 130]))
-    mock_classify = mocker.patch("main.classify_embedding", return_value={"is_in_collection": True, "probability": 0.98})
+    # Mock the internals used by the classify operation (which delegates into the service layer)
+    mocker.patch(
+        "app.core.model_loader.get_classifier_metadata",
+        return_value={"embedding_type": "embed_clip_vit_b_32", "derivative_type": "prominent_face"},
+    )
+    mock_get_person = mocker.patch(
+        "app.services.detection_service.get_prominent_person_bbox",
+        return_value=[100, 50, 300, 250],
+    )
+    mock_get_face = mocker.patch(
+        "app.services.detection_service.get_prominent_face_bbox_in_region",
+        return_value=[110, 70, 160, 130],
+    )
+    mock_get_embedding = mocker.patch(
+        "app.services.embedding_service.get_clip_embedding",
+        return_value=([0.1] * 512, "base64_string", [110, 70, 160, 130]),
+    )
+    mock_classify = mocker.patch(
+        "app.services.classification_service.classify_embedding",
+        return_value={"is_in_collection": True, "probability": 0.98},
+    )
+
+    # The second task reads the cached result; ensure we don't re-run detection via main.
+    mock_main_get_person = mocker.patch("main.get_prominent_person_bbox")
 
     # 2. Arrange: Define a complex request with multiple dependent tasks
     request_data = {
@@ -57,10 +76,10 @@ def test_analyze_image_classification_on_face(client, mocker):
     # IMPORTANT: Assert that expensive operations were only called once
     # This proves the internal caching (`shared_context`) is working.
     mock_get_person.assert_called_once()
-    # Face detection should also be called once, as it's needed by the first task.
     mock_get_face.assert_called_once()
     mock_get_embedding.assert_called_once()
     mock_classify.assert_called_once()
+    mock_main_get_person.assert_not_called()
 
 
 def test_analyze_image_describe_image(client, mocker):

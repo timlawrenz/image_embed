@@ -48,8 +48,12 @@ def _log_accelerator_info() -> None:
                 gcn = getattr(props, "gcnArchName", None)  # ROCm-only
                 if gcn:
                     logger.info("ModelLoader: device[0].gcnArchName=%s", gcn)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    "ModelLoader: Unable to query optional device properties: %s",
+                    e,
+                    exc_info=True,
+                )
     except Exception as e:
         logger.warning("ModelLoader: Unable to query accelerator info: %s", e)
 
