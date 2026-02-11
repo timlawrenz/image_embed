@@ -101,6 +101,11 @@ AVAILABLE_OPERATIONS = {
         "allowed_targets": ["whole_image", "prominent_person", "prominent_face"],
         "default_target": "whole_image",
     },
+    "embed_dino_v3": {
+        "description": "Generates a visual embedding using the DINOv3 model (default: facebook/dinov3-vitl16-pretrain-lvd1689m).",
+        "allowed_targets": ["whole_image", "prominent_person", "prominent_face"],
+        "default_target": "whole_image",
+    },
     "classify": {
         "description": "Classifies an image region using a pre-trained model for a specific collection.",
         "allowed_targets": ["whole_image", "prominent_person", "prominent_face"],
@@ -233,7 +238,7 @@ def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> 
                 current_cropped_image_base64 = b64_img
                 current_cropped_image_bbox = bbox_used
             
-            elif op_type == "embed_dino_v2":
+            elif op_type in {"embed_dino_v2", "embed_dino_v3"}:
                 # This part is not using the shared embedding cache, as DINO is a different embedding type.
                 embedding_start = time.time()
                 crop_box_for_dino = None
@@ -259,8 +264,14 @@ def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> 
                         crop_box_for_dino = shared_context["prominent_face_bbox"]
                     else:
                         raise ValueError(f"No prominent face found for operation '{op_id}'.")
-                
-                embedding_list, b64_img, bbox_used = get_dino_embedding(pil_image_rgb, crop_bbox=crop_box_for_dino)
+
+                if op_type == "embed_dino_v2":
+                    embedding_list, b64_img, bbox_used = get_dino_embedding(pil_image_rgb, crop_bbox=crop_box_for_dino)
+                else:
+                    from app.services.embedding_service import get_dino_v3_embedding
+
+                    embedding_list, b64_img, bbox_used = get_dino_v3_embedding(pil_image_rgb, crop_bbox=crop_box_for_dino)
+
                 timing_stats["embedding"] += time.time() - embedding_start
                 current_result_data = embedding_list
                 current_cropped_image_base64 = b64_img

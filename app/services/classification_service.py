@@ -94,7 +94,7 @@ def classify_embedding_from_image(
         ValueError: If derivative_type or embedding_type is invalid
     """
     from app.services.detection_service import get_prominent_person_bbox, get_prominent_face_bbox_in_region
-    from app.services.embedding_service import get_clip_embedding, get_dino_embedding
+    from app.services.embedding_service import get_clip_embedding, get_dino_embedding, get_dino_v3_embedding
     
     # Get classifier metadata to determine embedding type and target
     metadata = model_loader.get_classifier_metadata(collection_id)
@@ -150,6 +150,8 @@ def classify_embedding_from_image(
         elif embedding_type == 'embed_dino_v2':
             # Use default DINO model name
             embedding_list, _, _ = get_dino_embedding(pil_image, crop_bbox=crop_box)
+        elif embedding_type == 'embed_dino_v3':
+            embedding_list, _, _ = get_dino_v3_embedding(pil_image, crop_bbox=crop_box)
         else:
             raise ValueError(f"Unsupported embedding_type '{embedding_type}' for collection {collection_id}")
         

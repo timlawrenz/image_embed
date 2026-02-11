@@ -8,7 +8,12 @@ import glob
 import re
 import joblib
 import json
-from transformers import BlipProcessor, BlipForConditionalGeneration
+from transformers import (
+    AutoImageProcessor,
+    AutoModel,
+    BlipForConditionalGeneration,
+    BlipProcessor,
+)
 import timm
 from timm.data import resolve_data_config
 from timm.data.transforms_factory import create_transform
@@ -196,7 +201,7 @@ def get_dino_model_and_processor(model_name: str = "vit_base_patch14_dinov2.lvd1
         try:
             model = timm.create_model(model_name, pretrained=True).to(DEVICE)
             model.eval()
-            
+
             # Create a transform for model input
             config = resolve_data_config({}, model=model)
             processor = create_transform(**config)
@@ -211,7 +216,35 @@ def get_dino_model_and_processor(model_name: str = "vit_base_patch14_dinov2.lvd1
         logger.debug(f"ModelLoader: Using cached DINOv2 model '{model_name}'.")
         model = _loaded_models[cache_key_model]
         processor = _loaded_models[cache_key_processor]
-    
+
+    return model, processor
+
+
+def get_dino_v3_model_and_processor(
+    model_name: str = "facebook/dinov3-vitl16-pretrain-lvd1689m",
+):
+    """Loads and caches a DINOv3 vision model and its image processor from Hugging Face."""
+    cache_key_model = f"dino_v3_{model_name}_model"
+    cache_key_processor = f"dino_v3_{model_name}_processor"
+
+    if cache_key_model not in _loaded_models:
+        logger.info(f"ModelLoader: Loading DINOv3 model '{model_name}' on {DEVICE}...")
+        try:
+            processor = AutoImageProcessor.from_pretrained(model_name)
+            model = AutoModel.from_pretrained(model_name).to(DEVICE)
+            model.eval()
+
+            _loaded_models[cache_key_model] = model
+            _loaded_models[cache_key_processor] = processor
+            logger.info(f"ModelLoader: DINOv3 model '{model_name}' loaded and cached successfully.")
+        except Exception as e:
+            logger.exception(f"ModelLoader: Failed to load DINOv3 model '{model_name}'.")
+            raise RuntimeError(f"Could not load DINOv3 model '{model_name}': {e}") from e
+    else:
+        logger.debug(f"ModelLoader: Using cached DINOv3 model '{model_name}'.")
+        model = _loaded_models[cache_key_model]
+        processor = _loaded_models[cache_key_processor]
+
     return model, processor
 
 

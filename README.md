@@ -14,6 +14,7 @@ An advanced FastAPI service that performs various analyses on images. You provid
     *   **Face Detection:** Detects the most prominent face using MTCNN.
     *   **CLIP Embedding:** Generates semantic image embeddings using a specified CLIP model (default: "ViT-B/32") on the whole image, a detected person, or a detected face.
     *   **DINOv2 Embedding:** Generates visual feature embeddings optimized for similarity search based on composition, color, and texture.
+    *   **DINOv3 Embedding:** Generates modern visual embeddings via Hugging Face (default checkpoint: `facebook/dinov3-vitl16-pretrain-lvd1689m`).
     *   **Image Classification:** Uses trained binary classifiers to determine if an image belongs to specific collections.
     *   **Image Captioning:** Generates natural language descriptions of images using pre-trained captioning models.
 *   For operations involving cropping (e.g., embedding a detected face), the API returns:
@@ -300,6 +301,14 @@ Generates a visual embedding using the DINOv2 model. This is useful for similari
         *   `"prominent_face"`: Generates embedding for the cropped region of the most prominent face. Requires a face to be found.
     *   `face_context` (string, optional, default: `"prominent_person"`): Same as in `detect_bounding_box`, used when `target` is `"prominent_face"`.
 *   **`data` in result**: An array of floats representing the DINOv2 embedding vector.
+*   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if a crop was performed.
+
+### `embed_dino_v3`
+Generates a visual embedding using DINOv3 (default checkpoint: `facebook/dinov3-vitl16-pretrain-lvd1689m`).
+*   **`params`**:
+    *   `target` (string, optional, default: `"whole_image"`): Same as in `embed_dino_v2`.
+    *   `face_context` (string, optional, default: `"prominent_person"`): Same as in `embed_dino_v2`.
+*   **`data` in result**: An array of floats representing the DINOv3 embedding vector.
 *   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if a crop was performed.
 
 ### `classify`
