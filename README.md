@@ -16,7 +16,7 @@ An advanced FastAPI service that performs various analyses on images. You provid
     *   **DINOv2 Embedding:** Generates visual feature embeddings optimized for similarity search based on composition, color, and texture.
     *   **DINOv3 Embedding:** Generates modern visual embeddings via Hugging Face (default checkpoint: `facebook/dinov3-vitl16-pretrain-lvd1689m`).
     *   **Image Classification:** Uses trained binary classifiers to determine if an image belongs to specific collections.
-    *   **Image Captioning:** Generates natural language descriptions of images using pre-trained captioning models.
+    *   **Image Captioning:** Generates natural language descriptions of images using a captioning model + a Gemma LLM post-processor (`google/gemma-3-27b-it`).
 *   For operations involving cropping (e.g., embedding a detected face), the API returns:
     *   The primary result of the operation (e.g., embedding vector).
     *   The bounding box coordinates used for the crop.
@@ -321,7 +321,7 @@ Determines if an image region belongs to a specific collection using a pre-train
 *   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if the `target` for classification was not `"whole_image"`, following the same logic as `embed_clip_vit_b_32`.
 
 ### `describe_image`
-Generates a text description of an image region using a pre-trained image captioning model.
+Generates a text description of an image region using a two-stage pipeline: a base caption from the image captioning model, then a rewrite/expansion using `google/gemma-3-27b-it` (falls back to the base caption if Gemma is unavailable).
 *   **`params`**:
     *   `target` (string, optional, default: `"whole_image"`):
         *   `"whole_image"`: Generates a description for the entire image.
@@ -399,7 +399,7 @@ The service uses multiple pre-trained models for different tasks:
 *   **DINOv2:** Visual embedding model for similarity search based on composition, color, and texture features.
 *   **Faster R-CNN:** Person detection using TorchVision's pre-trained model.
 *   **MTCNN:** Face detection via facenet-pytorch.
-*   **Image Captioning Models:** Transformers-based models for generating image descriptions.
+*   **Image Captioning + Gemma:** A captioning model generates a base caption, then `google/gemma-3-27b-it` optionally rewrites it into a richer description (with fallback to the base caption).
 *   **Binary Classifiers:** Scikit-learn LogisticRegression models trained on CLIP embeddings, stored in `trained_classifiers/`.
 
 All models are loaded on-demand and cached by the `app.core.model_loader` module. This module handles device selection automatically:

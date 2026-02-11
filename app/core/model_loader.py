@@ -11,6 +11,8 @@ import json
 from transformers import (
     AutoImageProcessor,
     AutoModel,
+    AutoModelForCausalLM,
+    AutoTokenizer,
     BlipForConditionalGeneration,
     BlipProcessor,
 )
@@ -271,8 +273,38 @@ def get_image_captioning_model_and_processor(model_name: str = "Salesforce/blip-
         logger.debug(f"ModelLoader: Using cached image captioning model '{model_name}'.")
         model = _loaded_models[cache_key_model]
         processor = _loaded_models[cache_key_processor]
-    
+
     return model, processor
+
+
+def get_gemma_text_model_and_tokenizer(
+    model_name: str = "google/gemma-3-27b-it",
+):
+    """Loads and caches the Gemma text model and tokenizer for description generation."""
+    cache_key_model = f"gemma_{model_name}_model"
+    cache_key_tokenizer = f"gemma_{model_name}_tokenizer"
+
+    if cache_key_model not in _loaded_models:
+        logger.info(f"ModelLoader: Loading Gemma model '{model_name}' on {DEVICE}...")
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            dtype = torch.float16 if DEVICE == "cuda" else None
+            model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=dtype)
+            model = model.to(DEVICE)
+            model.eval()
+
+            _loaded_models[cache_key_model] = model
+            _loaded_models[cache_key_tokenizer] = tokenizer
+            logger.info(f"ModelLoader: Gemma model '{model_name}' loaded and cached successfully.")
+        except Exception as e:
+            logger.exception(f"ModelLoader: Failed to load Gemma model '{model_name}'.")
+            raise RuntimeError(f"Could not load Gemma model '{model_name}': {e}") from e
+    else:
+        logger.debug(f"ModelLoader: Using cached Gemma model '{model_name}'.")
+        model = _loaded_models[cache_key_model]
+        tokenizer = _loaded_models[cache_key_tokenizer]
+
+    return model, tokenizer
 
 
 def get_classifier_model(collection_id: int):

@@ -10,7 +10,7 @@ CAPTION_MODEL_NAME = "Salesforce/blip-image-captioning-large"
 def get_image_description(
     pil_image_rgb: Image.Image,
     crop_box: Optional[List[int]] = None,
-    max_length: int = 50  # Adjusted for typical BLIP caption length
+    max_length: int = 50,
 ) -> Tuple[str, Optional[str], Optional[List[int]]]:
     """
     Generates a text description for an image or a cropped region of it
@@ -39,15 +39,44 @@ def get_image_description(
     # Process the image.
     inputs = processor(images=image_to_process, return_tensors="pt").to(device)
     
-    # Generate the caption.
+    # Generate the base caption.
     outputs = model.generate(
         **inputs,
         max_length=max_length,
         num_beams=4,
-        early_stopping=True
+        early_stopping=True,
     )
-    
-    # Decode the generated tokens.
-    caption = processor.decode(outputs[0], skip_special_tokens=True)
 
-    return caption, b64_image, crop_box
+    base_caption = processor.decode(outputs[0], skip_special_tokens=True)
+
+    try:
+        llm, tokenizer = model_loader.get_gemma_text_model_and_tokenizer()
+        prompt = (
+            "You are an expert image describer. Write a detailed but concise description "
+            "of the image. Use the following base caption as grounding and do not invent "
+            "objects not implied by it.\n\n"
+            f"Base caption: {base_caption}\n\nDescription:"
+        )
+
+        llm_inputs = tokenizer(prompt, return_tensors="pt")
+        if hasattr(llm_inputs, "to"):
+            llm_inputs = llm_inputs.to(device)
+        else:
+            llm_inputs = {k: v.to(device) for k, v in llm_inputs.items()}
+
+        generated = llm.generate(
+            **llm_inputs,
+            max_new_tokens=max(32, max_length),
+            do_sample=False,
+        )
+        final_text = tokenizer.decode(generated[0], skip_special_tokens=True)
+
+        # Best-effort: strip the prompt back out if it was echoed.
+        if "Description:" in final_text:
+            final_text = final_text.split("Description:", 1)[-1].strip()
+
+        return final_text, b64_image, crop_box
+    except Exception as e:
+        # Non-fatal fallback to BLIP caption
+        model_loader.logger.warning("DescriptionService: Gemma unavailable, falling back to base caption: %s", e)
+        return base_caption, b64_image, crop_box

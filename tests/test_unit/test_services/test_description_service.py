@@ -22,44 +22,78 @@ def mock_captioning_model():
 
     return mock_model, mock_processor
 
-def test_get_image_description_whole_image(mock_captioning_model):
-    """
-    Tests generating a description for a whole image.
-    """
-    # 1. Arrange
+def test_get_image_description_whole_image(mock_captioning_model, mocker):
+    """Tests generating a Gemma-backed description for a whole image."""
     mock_model, mock_processor = mock_captioning_model
-    with patch('app.core.model_loader.get_image_captioning_model_and_processor', return_value=(mock_model, mock_processor)):
-        # Create a dummy PIL image
-        dummy_image = Image.new('RGB', (100, 100), color = 'red')
 
-        # 2. Act
+    # Mock Gemma model + tokenizer
+    mock_llm = MagicMock()
+    mock_tokenizer = MagicMock()
+    input_ids = MagicMock(); input_ids.to.return_value = input_ids
+    attention_mask = MagicMock(); attention_mask.to.return_value = attention_mask
+    mock_tokenizer.return_value = {"input_ids": input_ids, "attention_mask": attention_mask}
+    mock_llm.generate.return_value = ["gemma_tokens"]
+    mock_tokenizer.decode.return_value = "Description: gemma description"
+
+    mocker.patch(
+        "app.core.model_loader.get_gemma_text_model_and_tokenizer",
+        return_value=(mock_llm, mock_tokenizer),
+    )
+
+    with patch("app.core.model_loader.get_image_captioning_model_and_processor", return_value=(mock_model, mock_processor)):
+        dummy_image = Image.new("RGB", (100, 100), color="red")
+
         caption, b64_image, bbox_used = get_image_description(dummy_image)
 
-        # 3. Assert
-        assert caption == "a test caption"
+        assert caption == "gemma description"
         assert b64_image is None
         assert bbox_used is None
         mock_model.generate.assert_called_once()
-        # The processor's decode should be called with the model's output
         mock_processor.decode.assert_called_once_with("dummy_output_tensor", skip_special_tokens=True)
 
-def test_get_image_description_with_crop(mock_captioning_model):
-    """
-    Tests generating a description for a cropped region of an image.
-    """
-    # 1. Arrange
+def test_get_image_description_with_crop(mock_captioning_model, mocker):
+    """Tests generating a Gemma-backed description for a cropped region."""
     mock_model, mock_processor = mock_captioning_model
-    with patch('app.core.model_loader.get_image_captioning_model_and_processor', return_value=(mock_model, mock_processor)):
-        dummy_image = Image.new('RGB', (200, 200), color = 'blue')
+
+    mock_llm = MagicMock()
+    mock_tokenizer = MagicMock()
+    input_ids = MagicMock(); input_ids.to.return_value = input_ids
+    attention_mask = MagicMock(); attention_mask.to.return_value = attention_mask
+    mock_tokenizer.return_value = {"input_ids": input_ids, "attention_mask": attention_mask}
+    mock_llm.generate.return_value = ["gemma_tokens"]
+    mock_tokenizer.decode.return_value = "Description: gemma description"
+
+    mocker.patch(
+        "app.core.model_loader.get_gemma_text_model_and_tokenizer",
+        return_value=(mock_llm, mock_tokenizer),
+    )
+
+    with patch("app.core.model_loader.get_image_captioning_model_and_processor", return_value=(mock_model, mock_processor)):
+        dummy_image = Image.new("RGB", (200, 200), color="blue")
         crop_box = [50, 50, 150, 150]
 
-        # 2. Act
         caption, b64_image, bbox_used = get_image_description(dummy_image, crop_box=crop_box)
 
-        # 3. Assert
-        assert caption == "a test caption"
+        assert caption == "gemma description"
         assert b64_image is not None
         assert isinstance(b64_image, str)
         assert bbox_used == crop_box
-        # Ensure the model was called (implying the crop happened before it)
         mock_model.generate.assert_called_once()
+
+
+def test_get_image_description_fallback_to_base_caption(mock_captioning_model, mocker):
+    """If Gemma fails to load/generate, we fall back to BLIP base caption."""
+    mock_model, mock_processor = mock_captioning_model
+
+    mocker.patch(
+        "app.core.model_loader.get_gemma_text_model_and_tokenizer",
+        side_effect=RuntimeError("nope"),
+    )
+
+    with patch("app.core.model_loader.get_image_captioning_model_and_processor", return_value=(mock_model, mock_processor)):
+        dummy_image = Image.new("RGB", (100, 100), color="red")
+
+        caption, _, _ = get_image_description(dummy_image)
+
+        assert caption == "a test caption"
+
