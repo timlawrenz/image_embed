@@ -1,82 +1,81 @@
 from PIL import Image
 from typing import Optional, List, Tuple
+
+import re
+import torch
+
 from app.core import model_loader
 from app.services.image_utils import crop_image_and_get_base64
-import re
 
-# The model name for Salesforce's BLIP model.
-CAPTION_MODEL_NAME = "Salesforce/blip-image-captioning-large"
+DEFAULT_MAX_LENGTH = 300
+
+_SYSTEM_PROMPT = (
+    "You are generating a caption for a text-to-image training dataset. "
+    "Write exactly one dense paragraph in a dry, descriptive tone (no flowery language, no lists). "
+    "Describe only what is visible in the image; do not guess or invent details. "
+    "If a detail is unclear, say it is unclear/indistinct. "
+    "Include (when visible): subject, pose, clothing/accessories, lighting, background, composition/framing, and camera angle."
+)
+
+_USER_PROMPT = (
+    "Analyze this image for a text-to-image training dataset. "
+    "Describe the subject, pose, clothing, lighting, background, and camera angle in extreme detail."
+)
+
 
 def get_image_description(
     pil_image_rgb: Image.Image,
     crop_box: Optional[List[int]] = None,
-    max_length: int = 50,
+    max_length: int = DEFAULT_MAX_LENGTH,
 ) -> Tuple[str, Optional[str], Optional[List[int]]]:
-    """
-    Generates a text description for an image or a cropped region of it
-    using the Salesforce BLIP model.
+    """Generate a dense, single-paragraph description using Gemma 3 multimodal."""
 
-    Args:
-        pil_image_rgb: The PIL image in RGB format.
-        crop_box: Optional bounding box [xmin, ymin, xmax, ymax] to crop from the image.
-        max_length: The maximum length of the generated caption.
-
-    Returns:
-        A tuple containing:
-        - The generated text description (string).
-        - A base64 encoded string of the cropped image if crop_box was provided, otherwise None.
-        - The bounding box used for cropping if crop_box was provided, otherwise None.
-    """
-    model, processor = model_loader.get_image_captioning_model_and_processor(CAPTION_MODEL_NAME)
     device = model_loader.get_device()
+    if device != "cuda":
+        raise RuntimeError("describe_image requires CUDA")
 
     image_to_process = pil_image_rgb
     b64_image = None
-    
     if crop_box:
         image_to_process, b64_image = crop_image_and_get_base64(pil_image_rgb, crop_box)
 
-    # Process the image.
-    inputs = processor(images=image_to_process, return_tensors="pt").to(device)
-    
-    # Generate the base caption.
-    outputs = model.generate(
-        **inputs,
-        max_length=max_length,
-        num_beams=4,
-        early_stopping=True,
+    llm, processor = model_loader.get_gemma_vision_model_and_processor()
+
+    messages = [
+        {"role": "system", "content": [{"type": "text", "text": _SYSTEM_PROMPT}]},
+        {
+            "role": "user",
+            "content": [
+                {"type": "image", "image": image_to_process},
+                {"type": "text", "text": _USER_PROMPT},
+            ],
+        },
+    ]
+
+    inputs = processor.apply_chat_template(
+        messages,
+        add_generation_prompt=True,
+        tokenize=True,
+        return_dict=True,
+        return_tensors="pt",
     )
 
-    base_caption = processor.decode(outputs[0], skip_special_tokens=True)
+    if hasattr(inputs, "to"):
+        inputs = inputs.to(device)
+    else:
+        inputs = {k: v.to(device) for k, v in inputs.items()}
 
-    try:
-        llm, tokenizer = model_loader.get_gemma_text_model_and_tokenizer()
-        prompt = (
-            "You are an expert image describer. Write a detailed but concise description "
-            "of the image. Use the following base caption as grounding and do not invent "
-            "objects not implied by it.\n\n"
-            f"Base caption: {base_caption}\n\nDescription:"
-        )
+    input_len = inputs["input_ids"].shape[-1]
 
-        llm_inputs = tokenizer(prompt, return_tensors="pt")
-        if hasattr(llm_inputs, "to"):
-            llm_inputs = llm_inputs.to(device)
-        else:
-            llm_inputs = {k: v.to(device) for k, v in llm_inputs.items()}
-
-        generated = llm.generate(
-            **llm_inputs,
-            max_new_tokens=max(32, max_length),
+    with torch.inference_mode():
+        generation = llm.generate(
+            **inputs,
+            max_new_tokens=max_length,
             do_sample=False,
         )
-        final_text = tokenizer.decode(generated[0], skip_special_tokens=True)
 
-        # Best-effort: strip the prompt back out if it was echoed.
-        if "Description:" in final_text:
-            final_text = final_text.split("Description:", 1)[-1].strip()
+    generated_tokens = generation[0][input_len:]
+    text = processor.decode(generated_tokens, skip_special_tokens=True)
+    text = re.sub(r"\s+", " ", text).strip()
 
-        return final_text, b64_image, crop_box
-    except Exception as e:
-        # Non-fatal fallback to BLIP caption
-        model_loader.logger.warning("DescriptionService: Gemma unavailable, falling back to base caption: %s", e)
-        return base_caption, b64_image, crop_box
+    return text, b64_image, crop_box

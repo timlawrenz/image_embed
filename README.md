@@ -16,7 +16,7 @@ An advanced FastAPI service that performs various analyses on images. You provid
     *   **DINOv2 Embedding:** Generates visual feature embeddings optimized for similarity search based on composition, color, and texture.
     *   **DINOv3 Embedding:** Generates modern visual embeddings via Hugging Face (default checkpoint: `facebook/dinov3-vitl16-pretrain-lvd1689m`).
     *   **Image Classification:** Uses trained binary classifiers to determine if an image belongs to specific collections.
-    *   **Image Captioning:** Generates natural language descriptions of images using a captioning model + a Gemma LLM post-processor (`google/gemma-3-27b-it`).
+    *   **Image Description (Gemma 3):** Generates dense, training-ready descriptions using `google/gemma-3-27b-it` with image+prompt input (requires CUDA).
 *   For operations involving cropping (e.g., embedding a detected face), the API returns:
     *   The primary result of the operation (e.g., embedding vector).
     *   The bounding box coordinates used for the crop.
@@ -321,14 +321,14 @@ Determines if an image region belongs to a specific collection using a pre-train
 *   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if the `target` for classification was not `"whole_image"`, following the same logic as `embed_clip_vit_b_32`.
 
 ### `describe_image`
-Generates a text description of an image region using a two-stage pipeline: a base caption from the image captioning model, then a rewrite/expansion using `google/gemma-3-27b-it` (falls back to the base caption if Gemma is unavailable).
+Generates a dense single-paragraph description of an image region using `google/gemma-3-27b-it` with image+prompt input (requires CUDA; failures return an error result for that task).
 *   **`params`**:
     *   `target` (string, optional, default: `"whole_image"`):
         *   `"whole_image"`: Generates a description for the entire image.
         *   `"prominent_person"`: Generates a description for the cropped region of the most prominent person. If no person is found, falls back to the whole image.
         *   `"prominent_face"`: Generates a description for the cropped region of the most prominent face. Requires a face to be found.
     *   `face_context` (string, optional, default: `"prominent_person"`): Same as in `detect_bounding_box`, used when `target` is `"prominent_face"`.
-    *   `max_length` (integer, optional, default: `50`): The maximum number of tokens for the generated description.
+    *   `max_length` (integer, optional, default: `300`): Output token budget for the generated description (`max_new_tokens`).
 *   **`data` in result**: A string containing the generated text description.
 *   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if `target` was `"prominent_person"` (and a person was found and cropped) or `"prominent_face"` (and a face was found and cropped).
 
@@ -399,7 +399,7 @@ The service uses multiple pre-trained models for different tasks:
 *   **DINOv2:** Visual embedding model for similarity search based on composition, color, and texture features.
 *   **Faster R-CNN:** Person detection using TorchVision's pre-trained model.
 *   **MTCNN:** Face detection via facenet-pytorch.
-*   **Image Captioning + Gemma:** A captioning model generates a base caption, then `google/gemma-3-27b-it` optionally rewrites it into a richer description (with fallback to the base caption).
+*   **Image Description (Gemma 3):** Multimodal `google/gemma-3-27b-it` generates dense single-paragraph descriptions from image+prompt input (requires CUDA).
 *   **Binary Classifiers:** Scikit-learn LogisticRegression models trained on CLIP embeddings, stored in `trained_classifiers/`.
 
 All models are loaded on-demand and cached by the `app.core.model_loader` module. This module handles device selection automatically:

@@ -311,7 +311,7 @@ def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> 
                 timing_stats["classification"] += time.time() - classification_start
 
             elif op_type == "describe_image":
-                max_length = op_params.get("max_length", 1024)
+                max_length = op_params.get("max_length", 300)
                 crop_box_for_desc = None
                 if target == "prominent_person":
                     if not person_detection_done:

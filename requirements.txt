@@ -12,7 +12,7 @@ torch
 torchaudio
 torchvision
 uvicorn[standard]
-transformers>=4.41.2
+transformers>=4.50.0
 accelerate
 protobuf
 einops
