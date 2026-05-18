@@ -15,7 +15,7 @@ from sklearn.metrics import classification_report
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
-BASE_URL = "https://crawlr.lawrenz.com"
+BASE_URL = "http://192.168.86.49:3003"
 COLLECTIONS_ENDPOINT = f"{BASE_URL}/collections.json"
 TRAINING_DATA_ENDPOINT_TEMPLATE = f"{BASE_URL}/collections/{{collection_id}}/training_data.json"
 CLASSIFIER_DIR = "trained_classifiers"
