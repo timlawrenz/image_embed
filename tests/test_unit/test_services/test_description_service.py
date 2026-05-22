@@ -55,7 +55,7 @@ def test_get_image_description_with_crop(mocker):
     )
 
     mocker.patch(
-        "app.services.description_service.crop_image_and_get_base64",
+        "app.services.description_service.get_cropped_image",
         return_value=(Image.new("RGB", (10, 10), color="blue"), "b64"),
     )
 

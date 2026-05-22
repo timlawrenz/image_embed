@@ -5,7 +5,7 @@ import re
 import torch
 
 from app.core import model_loader
-from app.services.image_utils import crop_image_and_get_base64
+from app.services.image_utils import get_cropped_image
 
 DEFAULT_MAX_LENGTH = 300
 
@@ -27,6 +27,7 @@ def get_image_description(
     pil_image_rgb: Image.Image,
     crop_box: Optional[List[int]] = None,
     max_length: int = DEFAULT_MAX_LENGTH,
+    shared_context: Optional[dict] = None,
 ) -> Tuple[str, Optional[str], Optional[List[int]]]:
     """Generate a dense, single-paragraph description using Gemma 3 multimodal."""
 
@@ -37,7 +38,7 @@ def get_image_description(
     image_to_process = pil_image_rgb
     b64_image = None
     if crop_box:
-        image_to_process, b64_image = crop_image_and_get_base64(pil_image_rgb, crop_box)
+        image_to_process, b64_image = get_cropped_image(pil_image_rgb, crop_box, shared_context)
 
     llm, processor = model_loader.get_gemma_vision_model_and_processor()
 

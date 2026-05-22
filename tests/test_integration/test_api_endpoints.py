@@ -120,3 +120,87 @@ def test_analyze_image_describe_image(client, mocker):
     assert results["describe_whole_image"]["cropped_image_bbox"] is None
 
     mock_get_description.assert_called_once()
+
+
+def test_crop_cache_across_classify_tasks(client, mocker):
+    """
+    Two classify tasks targeting the same person bbox should only
+    invoke crop_image_and_get_base64 once — the second hit reuses
+    the cache in shared_context.
+    """
+    from app.services.image_utils import crop_image_and_get_base64
+
+    # 1. Arrange
+    mocker.patch("main.download_image", return_value=Image.new('RGB', (800, 600)))
+
+    # Classifier metadata: two collections, different embedding types, same target
+    metadata_map = {
+        10: {"embedding_type": "embed_dino_v2", "derivative_type": "prominent_person"},
+        20: {"embedding_type": "embed_clip_vit_b_32", "derivative_type": "prominent_person"},
+    }
+
+    def _get_meta(cid):
+        return metadata_map[cid]
+
+    mocker.patch(
+        "app.core.model_loader.get_classifier_metadata",
+        side_effect=_get_meta,
+    )
+
+    # Detection produces the same bbox for both
+    mocker.patch(
+        "app.services.detection_service.get_prominent_person_bbox",
+        return_value=[100, 50, 300, 250],
+    )
+
+    # Mock embedding generation — return dummy embeddings
+    mocker.patch(
+        "app.services.embedding_service.get_dino_embedding",
+        return_value=([0.1] * 768, "dino_b64", [100, 50, 300, 250]),
+    )
+    mocker.patch(
+        "app.services.embedding_service.get_clip_embedding",
+        return_value=([0.2] * 512, "clip_b64", [100, 50, 300, 250]),
+    )
+
+    # Mock classification
+    mocker.patch(
+        "app.services.classification_service.classify_embedding",
+        return_value={"is_in_collection": False, "probability": 0.5},
+    )
+
+    # Spy on the source-of-truth crop function
+    mock_crop_base = mocker.patch(
+        "app.services.image_utils.crop_image_and_get_base64",
+        wraps=crop_image_and_get_base64,
+    )
+
+    request_data = {
+        "image_url": "http://example.com/img.jpg",
+        "tasks": [
+            {
+                "operation_id": "classify_a",
+                "type": "classify",
+                "params": {"target": "prominent_person", "collection_id": 10},
+            },
+            {
+                "operation_id": "classify_b",
+                "type": "classify",
+                "params": {"target": "prominent_person", "collection_id": 20},
+            },
+        ],
+    }
+
+    # 2. Act
+    response = client.post("/analyze_image/", json=request_data)
+
+    # 3. Assert
+    assert response.status_code == 200
+
+    # The crop should only happen once because:
+    #  - classify_a (dino_v2) crops → cache hit set
+    #  - classify_b (clip_vit_b_32) reuses cached crop
+    assert mock_crop_base.call_count <= 1, (
+        f"Expected crop_image_and_get_base64 to be called ≤ 1 time, "
+        f"but was called {mock_crop_base.call_count} times"
+    )

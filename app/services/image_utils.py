@@ -60,3 +60,27 @@ def crop_image_and_get_base64(
     b64_string = base64.b64encode(buffer.getvalue()).decode("utf-8")
     
     return cropped_image, b64_string
+
+
+def get_cropped_image(
+    pil_image: Image.Image,
+    bbox: List[int],
+    shared_context: Optional[dict] = None,
+) -> Tuple[Image.Image, str]:
+    """
+    Returns (cropped_image, base64_str) for the given bbox.
+
+    If shared_context is provided, caches the result under the key
+    f"crop_{tuple(bbox)}" so that subsequent calls with the same bbox
+    on the same request reuse the crop without re-executing it.
+    """
+    if shared_context is not None:
+        cache_key = f"crop_{tuple(bbox)}"
+        cached = shared_context.get(cache_key)
+        if cached is not None:
+            logger.info("Reusing cached crop for bbox %s", bbox)
+            return cached
+        cropped, b64 = crop_image_and_get_base64(pil_image, bbox)
+        shared_context[cache_key] = (cropped, b64)
+        return cropped, b64
+    return crop_image_and_get_base64(pil_image, bbox)

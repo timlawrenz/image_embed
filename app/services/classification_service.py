@@ -94,7 +94,7 @@ def classify_embedding_from_image(
         ValueError: If derivative_type or embedding_type is invalid
     """
     from app.services.detection_service import get_prominent_person_bbox, get_prominent_face_bbox_in_region
-    from app.services.embedding_service import get_clip_embedding, get_dino_embedding, get_dino_v3_embedding
+    from app.services.embedding_service import get_clip_embedding, get_dino_embedding, get_dino_v3_embedding, get_dino_v3_patch_embedding
     
     # Get classifier metadata to determine embedding type and target
     metadata = model_loader.get_classifier_metadata(collection_id)
@@ -138,29 +138,44 @@ def classify_embedding_from_image(
         if not crop_box:
             raise ValueError(f"No face detected for collection {collection_id} with face target")
     
-    # Generate correct embedding type with caching
-    embedding_cache_key = f"embedding_{embedding_type}_{target}"
+    # Handle multi-embedding types (e.g., 'embed_clip_vit_b_32+embed_dino_v2')
+    embedding_types = embedding_type.split('+')
     
-    if embedding_cache_key not in shared_context:
-        embedding_start = time.time()
+    combined_embedding = []
+    for emb_type in embedding_types:
+        embedding_cache_key = f"embedding_{emb_type}_{target}"
         
-        if embedding_type == 'embed_clip_vit_b_32':
-            from main import MODEL_NAME_CLIP
-            embedding_list, _, _ = get_clip_embedding(pil_image, MODEL_NAME_CLIP, crop_box)
-        elif embedding_type == 'embed_dino_v2':
-            # Use default DINO model name
-            embedding_list, _, _ = get_dino_embedding(pil_image, crop_bbox=crop_box)
-        elif embedding_type == 'embed_dino_v3':
-            embedding_list, _, _ = get_dino_v3_embedding(pil_image, crop_bbox=crop_box)
+        if embedding_cache_key not in shared_context:
+            embedding_start = time.time()
+            
+            if emb_type == 'embed_clip_vit_b_32':
+                from main import MODEL_NAME_CLIP
+                emb_list, _, _ = get_clip_embedding(
+                    pil_image, MODEL_NAME_CLIP, crop_box, shared_context=shared_context
+                )
+            elif emb_type == 'embed_dino_v2':
+                emb_list, _, _ = get_dino_embedding(
+                    pil_image, crop_bbox=crop_box, shared_context=shared_context
+                )
+            elif emb_type == 'embed_dino_v3':
+                emb_list, _, _ = get_dino_v3_embedding(
+                    pil_image, crop_bbox=crop_box, shared_context=shared_context
+                )
+            elif emb_type == 'embed_dino_v3_patch':
+                emb_list, _, _ = get_dino_v3_patch_embedding(
+                    pil_image, crop_bbox=crop_box, shared_context=shared_context
+                )
+            else:
+                raise ValueError(f"Unsupported embedding_type '{emb_type}' for collection {collection_id}")
+            
+            timing_stats['embedding'] += time.time() - embedding_start
+            shared_context[embedding_cache_key] = emb_list
+            logger.debug(f"Generated and cached {emb_type} embedding for {target}")
         else:
-            raise ValueError(f"Unsupported embedding_type '{embedding_type}' for collection {collection_id}")
+            emb_list = shared_context[embedding_cache_key]
+            logger.debug(f"Using cached {emb_type} embedding for {target}")
         
-        timing_stats['embedding'] += time.time() - embedding_start
-        shared_context[embedding_cache_key] = embedding_list
-        logger.debug(f"Generated and cached {embedding_type} embedding for {target}")
-    else:
-        embedding_list = shared_context[embedding_cache_key]
-        logger.debug(f"Using cached {embedding_type} embedding for {target}")
+        combined_embedding.extend(emb_list)
     
-    # Classify using the existing function
-    return classify_embedding(embedding_list, collection_id)
+    # Classify using the concatenated embedding
+    return classify_embedding(combined_embedding, collection_id)

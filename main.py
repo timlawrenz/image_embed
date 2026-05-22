@@ -106,6 +106,11 @@ AVAILABLE_OPERATIONS = {
         "allowed_targets": ["whole_image", "prominent_person", "prominent_face"],
         "default_target": "whole_image",
     },
+    "embed_dino_v3_patch": {
+        "description": "Generates a mean-pooled patch token embedding from DINOv3 ViT-L (1024-dim, spatial features).",
+        "allowed_targets": ["whole_image", "prominent_person", "prominent_face"],
+        "default_target": "whole_image",
+    },
     "classify": {
         "description": "Classifies an image region using a pre-trained model for a specific collection.",
         "allowed_targets": ["whole_image", "prominent_person", "prominent_face"],
@@ -146,7 +151,7 @@ def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> 
     ) -> Tuple[Optional[List[float]], Optional[str], Optional[List[int]]]:
         nonlocal person_detection_done, face_detection_done, timing_stats
 
-        embedding_cache_key = f"embedding_{target}"
+        embedding_cache_key = f"embedding_embed_clip_vit_b_32_{target}"
         if "face" in target:
             embedding_cache_key += f"_{face_context}"
         
@@ -182,7 +187,9 @@ def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> 
                 raise ValueError(f"No prominent face found for operation '{op_id}'.")
         
         embedding_start = time.time()
-        embedding_list, b64_img, bbox_used = get_clip_embedding(pil_image_rgb, MODEL_NAME_CLIP, crop_box)
+        embedding_list, b64_img, bbox_used = get_clip_embedding(
+            pil_image_rgb, MODEL_NAME_CLIP, crop_box, shared_context=shared_context
+        )
         timing_stats["embedding"] += time.time() - embedding_start
         shared_context[embedding_cache_key] = (embedding_list, b64_img, bbox_used)
         return embedding_list, b64_img, bbox_used
@@ -238,7 +245,7 @@ def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> 
                 current_cropped_image_base64 = b64_img
                 current_cropped_image_bbox = bbox_used
             
-            elif op_type in {"embed_dino_v2", "embed_dino_v3"}:
+            elif op_type in {"embed_dino_v2", "embed_dino_v3", "embed_dino_v3_patch"}:
                 # This part is not using the shared embedding cache, as DINO is a different embedding type.
                 embedding_start = time.time()
                 crop_box_for_dino = None
@@ -266,11 +273,21 @@ def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> 
                         raise ValueError(f"No prominent face found for operation '{op_id}'.")
 
                 if op_type == "embed_dino_v2":
-                    embedding_list, b64_img, bbox_used = get_dino_embedding(pil_image_rgb, crop_bbox=crop_box_for_dino)
+                    embedding_list, b64_img, bbox_used = get_dino_embedding(
+                        pil_image_rgb, crop_bbox=crop_box_for_dino, shared_context=shared_context
+                    )
+                elif op_type == "embed_dino_v3_patch":
+                    from app.services.embedding_service import get_dino_v3_patch_embedding
+
+                    embedding_list, b64_img, bbox_used = get_dino_v3_patch_embedding(
+                        pil_image_rgb, crop_bbox=crop_box_for_dino, shared_context=shared_context
+                    )
                 else:
                     from app.services.embedding_service import get_dino_v3_embedding
 
-                    embedding_list, b64_img, bbox_used = get_dino_v3_embedding(pil_image_rgb, crop_bbox=crop_box_for_dino)
+                    embedding_list, b64_img, bbox_used = get_dino_v3_embedding(
+                        pil_image_rgb, crop_bbox=crop_box_for_dino, shared_context=shared_context
+                    )
 
                 timing_stats["embedding"] += time.time() - embedding_start
                 current_result_data = embedding_list
@@ -339,7 +356,9 @@ def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> 
                         raise ValueError(f"No prominent face found for operation '{op_id}'.")
 
                 description_start = time.time()
-                caption, b64_img, bbox_used = get_image_description(pil_image_rgb, crop_box_for_desc, max_length)
+                caption, b64_img, bbox_used = get_image_description(
+                    pil_image_rgb, crop_box_for_desc, max_length, shared_context=shared_context
+                )
                 timing_stats["description"] += time.time() - description_start
                 
                 current_result_data = caption
