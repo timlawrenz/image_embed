@@ -172,7 +172,13 @@ def classify_embedding_from_image(
             shared_context[embedding_cache_key] = emb_list
             logger.debug(f"Generated and cached {emb_type} embedding for {target}")
         else:
-            emb_list = shared_context[embedding_cache_key]
+            cached = shared_context[embedding_cache_key]
+            # get_embedding_for_target in main.py caches a 3-tuple (embedding, b64, bbox);
+            # unwrap it if present so we always get a flat list of floats.
+            if isinstance(cached, tuple):
+                emb_list = cached[0]
+            else:
+                emb_list = cached
             logger.debug(f"Using cached {emb_type} embedding for {target}")
         
         combined_embedding.extend(emb_list)
