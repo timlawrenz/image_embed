@@ -6,6 +6,7 @@ import logging
 import re
 import glob
 import pickle
+import numpy as np
 from datetime import datetime, timezone
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
@@ -20,6 +21,13 @@ COLLECTIONS_ENDPOINT = f"{BASE_URL}/collections.json"
 TRAINING_DATA_ENDPOINT_TEMPLATE = f"{BASE_URL}/collections/{{collection_id}}/training_data.json"
 CLASSIFIER_DIR = "trained_classifiers"
 MAX_MODELS_PER_COLLECTION = 10
+
+# Multi-embedding strategies: map collection_id -> list of embedding type names to concatenate.
+# When a collection is listed here, training fetches all listed types and concatenates them.
+# When not listed, falls back to the single-type approach from collection_focus.
+MULTI_EMBEDDING_STRATEGIES = {
+    8: ['embed_clip_vit_b_32', 'embed_dino_v3_patch'],  # Single Person Photo: CLIP(512) + DINOv3-Patch(1024) = 1536d
+}
 
 # --- Helper Functions ---
 
@@ -76,10 +84,12 @@ def fetch_collections():
         logging.debug(f"Response text was: {response.text}")
         return None
 
-def fetch_training_data(collection_id: int):
-    """Fetches training data for a specific collection."""
+def fetch_training_data(collection_id: int, embedding_type: str = None):
+    """Fetches training data for a specific collection, optionally filtered by embedding type."""
     url = TRAINING_DATA_ENDPOINT_TEMPLATE.format(collection_id=collection_id)
-    logging.info(f"Fetching training data for collection ID {collection_id} from {url}...")
+    if embedding_type:
+        url += f"?embedding_type={embedding_type}"
+    logging.info(f"Fetching training data for collection ID {collection_id} (type={embedding_type or 'default'}) from {url}...")
     try:
         response = requests.get(url)
         response.raise_for_status()
@@ -94,6 +104,58 @@ def fetch_training_data(collection_id: int):
         logging.debug(f"Response text was: {response.text}")
         return None
 
+
+def fetch_multi_embedding_training_data(collection_id: int, embedding_types: list):
+    """
+    Fetches training data for multiple embedding types and concatenates them by photo_id.
+    Only includes photos that have ALL embedding types present.
+    
+    Returns:
+        List of dicts with 'embedding' (concatenated) and 'label' keys, or None on failure.
+    """
+    type_data = {}
+    for emb_type in embedding_types:
+        data = fetch_training_data(collection_id, embedding_type=emb_type)
+        if not data:
+            logging.error(f"Failed to fetch {emb_type} training data for collection {collection_id}")
+            return None
+        # Index by photo_id
+        indexed = {}
+        for item in data:
+            pid = item.get('photo_id')
+            if pid is not None:
+                indexed[pid] = item
+        type_data[emb_type] = indexed
+        logging.info(f"  {emb_type}: {len(indexed)} photos with embeddings")
+
+    # Find intersection of all photo_ids
+    all_id_sets = [set(d.keys()) for d in type_data.values()]
+    common_ids = set.intersection(*all_id_sets)
+    logging.info(f"  Common photos across all types: {len(common_ids)}")
+
+    if not common_ids:
+        logging.error("No photos have all required embedding types.")
+        return None
+
+    # Build concatenated training data
+    training_data = []
+    for pid in sorted(common_ids):
+        embeddings = []
+        label = None
+        for emb_type in embedding_types:
+            item = type_data[emb_type][pid]
+            embeddings.extend(item['embedding'])
+            label = item['label']
+        training_data.append({
+            'embedding': embeddings,
+            'label': label,
+            'photo_id': pid
+        })
+
+    logging.info(f"  Built {len(training_data)} concatenated training samples ({len(training_data[0]['embedding'])}d)")
+    return training_data
+
+
 def train_and_save_model(collection_id: int, collection_name: str, training_data: list, derivative_type: str, embedding_type: str):
     """
     Trains a new classifier, saves it, and then evaluates all available versions
@@ -104,7 +166,7 @@ def train_and_save_model(collection_id: int, collection_name: str, training_data
         collection_name: The name of the collection
         training_data: List of dicts with 'embedding' and 'label' keys
         derivative_type: The derivative type (e.g., 'whole_image', 'prominent_person', 'prominent_face')
-        embedding_type: The embedding type (e.g., 'embed_clip_vit_b_32', 'embed_dino_v2')
+        embedding_type: The embedding type (e.g., 'embed_clip_vit_b_32', 'embed_dino_v2', or 'embed_clip_vit_b_32+embed_dino_v2')
     
     Returns:
         Dict with metadata about the best model, or None if training failed
@@ -253,24 +315,49 @@ def main():
             logging.warning(f"Skipping invalid collection entry: {collection}")
             continue
         
-        # Skip collections without focus metadata
-        if not derivative_type or not embedding_type:
-            logging.warning(f"Skipping collection '{collection_name}' (ID: {collection_id}) - missing focus metadata.")
-            continue
-
-        training_data = fetch_training_data(collection_id)
-        if training_data:
-            model_metadata = train_and_save_model(
-                collection_id, 
-                collection_name, 
-                training_data,
-                derivative_type,
-                embedding_type
-            )
-            if model_metadata:
-                best_models_map[str(collection_id)] = model_metadata
+        # Check if this collection has a multi-embedding strategy
+        if collection_id in MULTI_EMBEDDING_STRATEGIES:
+            embedding_types = MULTI_EMBEDDING_STRATEGIES[collection_id]
+            combined_type = '+'.join(embedding_types)
+            logging.info(f"Using multi-embedding strategy for '{collection_name}': {combined_type}")
+            
+            # Still need derivative_type from focus
+            if not derivative_type:
+                logging.warning(f"Skipping collection '{collection_name}' (ID: {collection_id}) - missing derivative_type in focus.")
+                continue
+            
+            training_data = fetch_multi_embedding_training_data(collection_id, embedding_types)
+            if training_data:
+                model_metadata = train_and_save_model(
+                    collection_id,
+                    collection_name,
+                    training_data,
+                    derivative_type,
+                    combined_type
+                )
+                if model_metadata:
+                    best_models_map[str(collection_id)] = model_metadata
+            else:
+                logging.warning(f"Could not build multi-embedding training data for '{collection_name}' (ID: {collection_id}).")
         else:
-            logging.warning(f"Could not retrieve or process training data for '{collection_name}' (ID: {collection_id}).")
+            # Original single-type flow
+            if not derivative_type or not embedding_type:
+                logging.warning(f"Skipping collection '{collection_name}' (ID: {collection_id}) - missing focus metadata.")
+                continue
+
+            training_data = fetch_training_data(collection_id)
+            if training_data:
+                model_metadata = train_and_save_model(
+                    collection_id, 
+                    collection_name, 
+                    training_data,
+                    derivative_type,
+                    embedding_type
+                )
+                if model_metadata:
+                    best_models_map[str(collection_id)] = model_metadata
+            else:
+                logging.warning(f"Could not retrieve or process training data for '{collection_name}' (ID: {collection_id}).")
 
     if best_models_map:
         config_path = os.path.join(CLASSIFIER_DIR, 'best_models.json')
