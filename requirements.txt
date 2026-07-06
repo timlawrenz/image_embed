@@ -18,3 +18,6 @@ protobuf
 einops
 timm
 timm
+# AuraFace identity embeddings (optional — only needed for embed_auraface operations)
+insightface
+opencv-python

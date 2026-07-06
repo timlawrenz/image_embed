@@ -438,6 +438,45 @@ def get_classifier_metadata(collection_id: int) -> dict:
     return metadata
 
 
+def get_auraface_model():
+    """Loads and caches the InsightFace AuraFace model for identity embeddings.
+
+    Returns a configured FaceAnalysis instance with the 'auraface' model.
+    Raises RuntimeError if insightface is not installed.
+    The model root can be set via AURAFACE_MODEL_ROOT env var (default:
+    /mnt/nas-ai-models).
+    """
+    cache_key = "auraface_model"
+    if cache_key not in _loaded_models:
+        try:
+            from insightface.app import FaceAnalysis
+        except ImportError:
+            raise RuntimeError(
+                "insightface is required for AuraFace embeddings. "
+                "Install with: pip install insightface"
+            )
+
+        model_root = os.getenv("AURAFACE_MODEL_ROOT", "/mnt/nas-ai-models")
+        logger.info(
+            "ModelLoader: Loading AuraFace model from '%s' on %s...",
+            model_root,
+            DEVICE,
+        )
+        app = FaceAnalysis(
+            name="auraface",
+            root=model_root,
+            providers=["CPUExecutionProvider"],
+        )
+        ctx_id = 0 if DEVICE == "cuda" else -1
+        app.prepare(ctx_id=ctx_id)
+        _loaded_models[cache_key] = app
+        logger.info("ModelLoader: AuraFace model loaded and cached successfully.")
+    else:
+        logger.debug("ModelLoader: Using cached AuraFace model.")
+
+    return _loaded_models[cache_key]
+
+
 def preload_all_models(clip_model_name: str):
     """
     Pre-loads all models into the cache at startup.

@@ -204,3 +204,103 @@ def test_crop_cache_across_classify_tasks(client, mocker):
         f"Expected crop_image_and_get_base64 to be called ≤ 1 time, "
         f"but was called {mock_crop_base.call_count} times"
     )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# AuraFace identity embedding integration tests
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_analyze_image_auraface_on_prominent_face(client, mocker):
+    """Full pipeline: face detection → auraface embedding on prominent_face."""
+    mocker.patch("main.download_image", return_value=Image.new("RGB", (800, 600)))
+
+    mocker.patch(
+        "main.get_prominent_person_bbox",
+        return_value=[100, 50, 300, 250],
+    )
+    mocker.patch(
+        "main.get_prominent_face_bbox_in_region",
+        return_value=[110, 70, 160, 130],
+    )
+    mock_get_auraface = mocker.patch(
+        "app.services.embedding_service.get_auraface_embedding",
+        return_value=([0.15] * 512, "face_b64", [110, 70, 160, 130]),
+    )
+
+    request_data = {
+        "image_url": "http://example.com/image.jpg",
+        "tasks": [
+            {
+                "operation_id": "face_id",
+                "type": "embed_auraface",
+                "params": {"target": "prominent_face"},
+            }
+        ],
+    }
+
+    response = client.post("/analyze_image/", json=request_data)
+
+    assert response.status_code == 200
+    results = response.json()["results"]
+    assert results["face_id"]["status"] == "success"
+    assert len(results["face_id"]["data"]) == 512
+    assert results["face_id"]["cropped_image_base64"] == "face_b64"
+    assert results["face_id"]["cropped_image_bbox"] == [110, 70, 160, 130]
+
+    mock_get_auraface.assert_called_once()
+
+
+def test_analyze_image_auraface_skipped_when_no_face(client, mocker):
+    """Returns skipped when face detection finds no face."""
+    mocker.patch("main.download_image", return_value=Image.new("RGB", (800, 600)))
+
+    mocker.patch(
+        "main.get_prominent_person_bbox",
+        return_value=[100, 50, 300, 250],
+    )
+    mocker.patch(
+        "main.get_prominent_face_bbox_in_region",
+        return_value=None,  # No face found
+    )
+
+    request_data = {
+        "image_url": "http://example.com/image.jpg",
+        "tasks": [
+            {
+                "operation_id": "no_face",
+                "type": "embed_auraface",
+                "params": {"target": "prominent_face"},
+            }
+        ],
+    }
+
+    response = client.post("/analyze_image/", json=request_data)
+
+    assert response.status_code == 200
+    results = response.json()["results"]
+    assert results["no_face"]["status"] == "skipped"
+    assert "No prominent face found" in results["no_face"]["error_message"]
+
+
+def test_analyze_image_auraface_rejects_whole_image_target(client, mocker):
+    """Returns skipped when target is not prominent_face."""
+    mocker.patch("main.download_image", return_value=Image.new("RGB", (800, 600)))
+
+    request_data = {
+        "image_url": "http://example.com/image.jpg",
+        "tasks": [
+            {
+                "operation_id": "bad_target",
+                "type": "embed_auraface",
+                "params": {"target": "whole_image"},
+            }
+        ],
+    }
+
+    response = client.post("/analyze_image/", json=request_data)
+
+    assert response.status_code == 200
+    results = response.json()["results"]
+    assert results["bad_target"]["status"] == "skipped"
+    assert "Unsupported target" in results["bad_target"]["error_message"]

@@ -111,6 +111,11 @@ AVAILABLE_OPERATIONS = {
         "allowed_targets": ["whole_image", "prominent_person", "prominent_face"],
         "default_target": "whole_image",
     },
+    "embed_auraface": {
+        "description": "Generates a 512-d AuraFace identity embedding from the prominent face.",
+        "allowed_targets": ["prominent_face"],
+        "default_target": "prominent_face",
+    },
     "classify": {
         "description": "Classifies an image region using a pre-trained model for a specific collection.",
         "allowed_targets": ["whole_image", "prominent_person", "prominent_face"],
@@ -289,6 +294,35 @@ def _perform_analysis(pil_image_rgb: Image.Image, tasks: List[AnalysisTask]) -> 
                         pil_image_rgb, crop_bbox=crop_box_for_dino, shared_context=shared_context
                     )
 
+                timing_stats["embedding"] += time.time() - embedding_start
+                current_result_data = embedding_list
+                current_cropped_image_base64 = b64_img
+                current_cropped_image_bbox = bbox_used
+
+            elif op_type == "embed_auraface":
+                from app.services.embedding_service import get_auraface_embedding
+
+                embedding_start = time.time()
+                crop_box_for_auraface = None
+
+                if target == "prominent_face":
+                    if not face_detection_done:
+                        detection_block_start = time.time()
+                        if not person_detection_done and face_context == "prominent_person":
+                            shared_context["prominent_person_bbox"] = get_prominent_person_bbox(pil_image_rgb)
+                            person_detection_done = True
+                        person_bbox_for_face = shared_context.get("prominent_person_bbox") if face_context == "prominent_person" else None
+                        shared_context["prominent_face_bbox"] = get_prominent_face_bbox_in_region(pil_image_rgb, person_bbox_for_face)
+                        face_detection_done = True
+                        timing_stats["detection"] += time.time() - detection_block_start
+                    if shared_context.get("prominent_face_bbox"):
+                        crop_box_for_auraface = shared_context["prominent_face_bbox"]
+                    else:
+                        raise ValueError(f"No prominent face found for operation '{op_id}'.")
+
+                embedding_list, b64_img, bbox_used = get_auraface_embedding(
+                    pil_image_rgb, crop_bbox=crop_box_for_auraface, shared_context=shared_context
+                )
                 timing_stats["embedding"] += time.time() - embedding_start
                 current_result_data = embedding_list
                 current_cropped_image_base64 = b64_img

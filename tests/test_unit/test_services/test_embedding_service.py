@@ -123,3 +123,96 @@ def test_get_dino_v3_embedding_with_crop(mock_dino_v3_model):
         processed_image = mock_processor.call_args.kwargs["images"]
         assert processed_image.size == (100, 100)
 
+
+# ──────────────────────────────────────────────────────────────────────
+# AuraFace identity embedding tests
+# ──────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def mock_auraface_app():
+    """Fixture providing a mock InsightFace AuraFace app with a detectable face."""
+    mock_app = MagicMock()
+    mock_face = MagicMock()
+    mock_face.normed_embedding = __import__("numpy").array([0.1] * 512)
+    mock_app.get.return_value = [mock_face]  # One face detected
+    return mock_app
+
+
+def test_get_auraface_embedding_requires_crop_bbox():
+    """ValueError when no crop_bbox provided — AuraFace needs a face region."""
+    from app.services.embedding_service import get_auraface_embedding
+
+    dummy_image = Image.new("RGB", (200, 200), color="red")
+
+    with pytest.raises(ValueError, match="requires a face crop"):
+        get_auraface_embedding(dummy_image, crop_bbox=None)
+
+
+def test_get_auraface_embedding_face_found(mock_auraface_app, mocker):
+    """Returns 512-d list + base64 crop + bbox when a face is detected."""
+    from app.core import model_loader
+    from app.services.embedding_service import get_auraface_embedding
+
+    mocker.patch.object(model_loader, "get_auraface_model", return_value=mock_auraface_app)
+
+    dummy_image = Image.new("RGB", (200, 200), color="red")
+    crop_box = [50, 50, 150, 150]
+
+    embedding, b64_img, bbox_used = get_auraface_embedding(dummy_image, crop_bbox=crop_box)
+
+    assert isinstance(embedding, list)
+    assert len(embedding) == 512
+    assert b64_img is not None
+    assert isinstance(b64_img, str)
+    assert bbox_used == crop_box
+    mock_auraface_app.get.assert_called_once()
+
+
+def test_get_auraface_embedding_no_face_detected(mocker):
+    """ValueError raised when SCRFD finds zero faces (even after padding)."""
+    from app.core import model_loader
+    from app.services.embedding_service import get_auraface_embedding
+
+    mock_app = MagicMock()
+    mock_app.get.return_value = []  # No faces detected
+    mocker.patch.object(model_loader, "get_auraface_model", return_value=mock_app)
+    # cv2 is imported lazily inside the padding fallback
+    mocker.patch.dict("sys.modules", {"cv2": MagicMock()})
+
+    dummy_image = Image.new("RGB", (200, 200), color="red")
+    crop_box = [50, 50, 150, 150]
+
+    with pytest.raises(ValueError, match="No face found"):
+        get_auraface_embedding(dummy_image, crop_bbox=crop_box)
+
+
+def test_get_auraface_embedding_padding_fallback(mocker):
+    """20% padding trick recovers detection on tight crops (ported from eidolon)."""
+    from app.core import model_loader
+    from app.services.embedding_service import get_auraface_embedding
+
+    mock_app = MagicMock()
+    mock_face = MagicMock()
+    mock_face.normed_embedding = __import__("numpy").array([0.5] * 512)
+    # First call fails, second (after padding) succeeds
+    mock_app.get.side_effect = [[], [mock_face]]
+    mocker.patch.object(model_loader, "get_auraface_model", return_value=mock_app)
+
+    # Mock cv2 for the padding fallback
+    mock_cv2 = MagicMock()
+    mock_cv2.copyMakeBorder.return_value = MagicMock()
+    mock_cv2.BORDER_CONSTANT = 0
+    mocker.patch.dict("sys.modules", {"cv2": mock_cv2})
+
+    dummy_image = Image.new("RGB", (100, 100), color="red")
+    crop_box = [10, 10, 90, 90]
+
+    embedding, b64_img, bbox_used = get_auraface_embedding(dummy_image, crop_bbox=crop_box)
+
+    assert len(embedding) == 512
+    assert bbox_used == crop_box
+    # get() should have been called twice: original + padded
+    assert mock_app.get.call_count == 2
+    mock_cv2.copyMakeBorder.assert_called_once()
+

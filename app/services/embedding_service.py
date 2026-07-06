@@ -1,5 +1,6 @@
 import logging
 from typing import List, Optional, Tuple
+import numpy as np
 from PIL import Image
 from app.core import model_loader
 
@@ -191,3 +192,68 @@ def get_dino_v3_patch_embedding(
     embedding_list = mean_pooled[0].detach().cpu().numpy().tolist()
     logger.info(f"DINOv3 patch embedding generated successfully (dim={len(embedding_list)}).")
     return embedding_list, base64_cropped_image, actual_crop_bbox
+
+
+def get_auraface_embedding(
+    pil_image_rgb: Image.Image,
+    crop_bbox: Optional[List[int]] = None,
+    shared_context: Optional[dict] = None,
+) -> Tuple[List[float], Optional[str], Optional[List[int]]]:
+    """Generate a 512-d AuraFace identity embedding from a face image.
+
+    Args:
+        pil_image_rgb: Source image (PIL RGB).
+        crop_bbox: REQUIRED bounding box [xmin, ymin, xmax, ymax] of the face.
+        shared_context: Optional cache dict for the crop result.
+
+    Returns:
+        (embedding_list [512 floats], base64_cropped_image, actual_crop_bbox)
+
+    Raises:
+        ValueError: If no crop_bbox provided or no face detected by SCRFD.
+    """
+    if crop_bbox is None:
+        raise ValueError(
+            "AuraFace requires a face crop (target='prominent_face'). "
+            "No crop_bbox was provided."
+        )
+
+    auraface_app = model_loader.get_auraface_model()
+
+    # Crop the face region from the source image
+    from app.services.image_utils import get_cropped_image
+    image_to_analyze, base64_cropped = get_cropped_image(
+        pil_image_rgb, crop_bbox, shared_context
+    )
+
+    if image_to_analyze.width == 0 or image_to_analyze.height == 0:
+        raise ValueError("Cropped face image is empty.")
+
+    # InsightFace expects BGR (OpenCV format), PIL is RGB
+    img_array = np.array(image_to_analyze)
+    img_bgr = img_array[:, :, ::-1].copy()
+
+    faces = auraface_app.get(img_bgr)
+
+    # Padding fallback for tightly-cropped faces (ported from eidolon).
+    # SCRFD can fail when the face fills the frame without shoulder/background
+    # context. A 20% black border gives the detector enough surrounding pixels.
+    if len(faces) == 0:
+        import cv2
+        h, w = img_bgr.shape[:2]
+        pad_y = int(h * 0.2)
+        pad_x = int(w * 0.2)
+        padded = cv2.copyMakeBorder(
+            img_bgr, pad_y, pad_y, pad_x, pad_x,
+            cv2.BORDER_CONSTANT, value=[0, 0, 0],
+        )
+        faces = auraface_app.get(padded)
+
+    if len(faces) == 0:
+        raise ValueError(
+            "No face found in the provided crop for AuraFace embedding."
+        )
+
+    embedding = faces[0].normed_embedding.tolist()
+    logger.info("AuraFace embedding generated successfully (dim=%d).", len(embedding))
+    return embedding, base64_cropped, crop_bbox
