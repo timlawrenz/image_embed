@@ -15,6 +15,7 @@ An advanced FastAPI service that performs various analyses on images. You provid
     *   **CLIP Embedding:** Generates semantic image embeddings using a specified CLIP model (default: "ViT-B/32") on the whole image, a detected person, or a detected face.
     *   **DINOv2 Embedding:** Generates visual feature embeddings optimized for similarity search based on composition, color, and texture.
     *   **DINOv3 Embedding:** Generates modern visual embeddings via Hugging Face (default checkpoint: `facebook/dinov3-vitl16-pretrain-lvd1689m`).
+    *   **AuraFace Identity Embedding:** Generates a 512-d identity vector from the prominent face using InsightFace's AuraFace model. Designed for face recognition, identity clustering, and persona-based collections.
     *   **Image Classification:** Uses trained binary classifiers to determine if an image belongs to specific collections.
     *   **Image Description (Gemma 3):** Generates dense, training-ready descriptions using `google/gemma-3-27b-it` with image+prompt input (requires CUDA).
 *   For operations involving cropping (e.g., embedding a detected face), the API returns:
@@ -174,6 +175,13 @@ Provides a list of available analysis operations that can be used in the `tasks`
         "prominent_face"
       ],
       "default_target": "whole_image"
+    },
+    "embed_auraface": {
+      "description": "Generates a 512-d AuraFace identity embedding from the prominent face.",
+      "allowed_targets": [
+        "prominent_face"
+      ],
+      "default_target": "prominent_face"
     }
   }
 }
@@ -311,6 +319,17 @@ Generates a visual embedding using DINOv3 (default checkpoint: `facebook/dinov3-
 *   **`data` in result**: An array of floats representing the DINOv3 embedding vector.
 *   **`cropped_image_bbox` / `cropped_image_base64` in result**: Populated if a crop was performed.
 
+### `embed_auraface`
+Generates a 512-d identity embedding using InsightFace's AuraFace model. Only operates on face crops — requires a face to be detected.
+*   **`params`**:
+    *   `target` (string, optional, default: `"prominent_face"`):
+        *   `"prominent_face"`: Generates an identity vector for the most prominent detected face. (Only valid target.)
+    *   `face_context` (string, optional, default: `"prominent_person"`): Same as in `detect_bounding_box`.
+*   **`data` in result**: An array of 512 floats representing the identity embedding vector.
+*   **`cropped_image_bbox` / `cropped_image_base64` in result**: The bounding box and base64 PNG of the cropped face used for the embedding.
+*   **Environment**: Set `AURAFACE_MODEL_ROOT` to control where InsightFace downloads/caches model weights (default: `/mnt/nas-ai-models`).
+*   **Dependencies**: Requires `insightface` and `opencv-python` packages. The operation fails with a clear error if these are not installed.
+
 ### `classify`
 Determines if an image region belongs to a specific collection using a pre-trained binary classifier. For each `collection_id`, a unique model is trained to predict whether an item is part of that collection (`true`) or not (`false`). The embedding logic used to get the vector for classification is identical to `embed_clip_vit_b_32`.
 *   **`params`**:
@@ -399,6 +418,7 @@ The service uses multiple pre-trained models for different tasks:
 *   **DINOv2:** Visual embedding model for similarity search based on composition, color, and texture features.
 *   **Faster R-CNN:** Person detection using TorchVision's pre-trained model.
 *   **MTCNN:** Face detection via facenet-pytorch.
+*   **AuraFace (InsightFace):** 512-d identity embeddings for face recognition and persona-based collections. Uses the 'auraface' model from the InsightFace library. Model weights are downloaded/cached on first use.
 *   **Image Description (Gemma 3):** Multimodal `google/gemma-3-27b-it` generates dense single-paragraph descriptions from image+prompt input (requires CUDA).
 *   **Binary Classifiers:** Scikit-learn LogisticRegression models trained on CLIP embeddings, stored in `trained_classifiers/`.
 
@@ -436,7 +456,7 @@ This makes it easy to monitor performance and troubleshoot issues in production.
 
 *   **Language:** Python 3.12
 *   **Framework:** FastAPI with Uvicorn
-*   **ML/CV Libraries:** PyTorch, TorchVision, OpenAI CLIP, DINOv2 (via Transformers), facenet-pytorch (MTCNN), scikit-learn
+*   **ML/CV Libraries:** PyTorch, TorchVision, OpenAI CLIP, DINOv2 (via Transformers), InsightFace (AuraFace), facenet-pytorch (MTCNN), scikit-learn
 *   **Data Processing:** Pillow, NumPy
 *   **Testing:** pytest
 *   **CI/CD:** CircleCI
