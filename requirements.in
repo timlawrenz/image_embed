@@ -1,0 +1,25 @@
+facenet-pytorch
+fastapi
+# openai-clip
+open_clip_torch
+# Unpinned: the old Pillow==11.2.1 pin had no py3.14 wheel, so pip built it
+# from source without libwebp and WEBP images failed to decode. Floor of
+# >=11.3.0 keeps py3.14 wheels (which bundle libwebp) selectable.
+Pillow>=11.3.0
+pydantic
+numpy
+python-multipart
+requests
+scikit-learn
+torch
+torchaudio
+torchvision
+uvicorn[standard]
+transformers>=4.50.0
+accelerate
+protobuf
+einops
+timm
+# AuraFace identity embeddings (optional — only needed for embed_auraface operations)
+insightface
+opencv-python

@@ -170,8 +170,8 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
-# Trained models
-trained_classifiers/
+# Trained models (symlink to NAS; ignore the link itself, not trailing-slash dir)
+trained_classifiers
 
 # PyPI configuration file
 .pypirc
