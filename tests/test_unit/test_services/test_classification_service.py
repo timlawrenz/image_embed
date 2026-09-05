@@ -41,3 +41,41 @@ def test_classify_embedding_model_not_found(mocker):
     # 2. Act & Assert: Use pytest.raises to confirm the exception is propagated
     with pytest.raises(FileNotFoundError):
         classify_embedding(embedding=[0.1] * 512, collection_id=999)
+
+
+def test_classify_embedding_from_image_supports_auraface(mocker):
+    """
+    A classifier trained on embed_auraface (prominent_face) must generate the
+    AuraFace embedding and classify it — not raise "Unsupported embedding_type".
+    """
+    from PIL import Image
+    from app.services.classification_service import classify_embedding_from_image
+
+    mocker.patch(
+        "app.core.model_loader.get_classifier_metadata",
+        return_value={"embedding_type": "embed_auraface", "derivative_type": "prominent_face"},
+    )
+    mocker.patch(
+        "app.services.detection_service.get_prominent_person_bbox",
+        return_value=[0, 0, 100, 100],
+    )
+    mocker.patch(
+        "app.services.detection_service.get_prominent_face_bbox_in_region",
+        return_value=[10, 10, 90, 90],
+    )
+    mock_auraface = mocker.patch(
+        "app.services.embedding_service.get_auraface_embedding",
+        return_value=([0.1] * 512, None, [10, 10, 90, 90]),
+    )
+    mock_classify = mocker.patch(
+        "app.services.classification_service.classify_embedding",
+        return_value={"is_in_collection": True, "probability": 0.9},
+    )
+
+    pil_image = Image.new("RGB", (200, 200), "white")
+    timing_stats = {"detection": 0.0, "embedding": 0.0, "classification": 0.0, "description": 0.0}
+
+    result = classify_embedding_from_image(pil_image, collection_id=20, shared_context={}, timing_stats=timing_stats)
+
+    mock_auraface.assert_called_once()
+    assert result == {"is_in_collection": True, "probability": 0.9}

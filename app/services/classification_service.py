@@ -94,7 +94,7 @@ def classify_embedding_from_image(
         ValueError: If derivative_type or embedding_type is invalid
     """
     from app.services.detection_service import get_prominent_person_bbox, get_prominent_face_bbox_in_region
-    from app.services.embedding_service import get_clip_embedding, get_dino_embedding, get_dino_v3_embedding, get_dino_v3_patch_embedding
+    from app.services.embedding_service import get_clip_embedding, get_dino_embedding, get_dino_v3_embedding, get_dino_v3_patch_embedding, get_auraface_embedding
     
     # Get classifier metadata to determine embedding type and target
     metadata = model_loader.get_classifier_metadata(collection_id)
@@ -163,6 +163,10 @@ def classify_embedding_from_image(
                 )
             elif emb_type == 'embed_dino_v3_patch':
                 emb_list, _, _ = get_dino_v3_patch_embedding(
+                    pil_image, crop_bbox=crop_box, shared_context=shared_context
+                )
+            elif emb_type == 'embed_auraface':
+                emb_list, _, _ = get_auraface_embedding(
                     pil_image, crop_bbox=crop_box, shared_context=shared_context
                 )
             else:
